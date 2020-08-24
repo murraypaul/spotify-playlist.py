@@ -364,7 +364,7 @@ def process_first_albums(playlists,sp,args):
                 select_duplicate(first_album_tracks,'','','',False)
 
 
-def get_results_for_track(sp,args,track_name,artist,album):
+def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_choice):
     search_str = "track:%s artist:%s album:%s" % (track_name, artist, album)
 
     results = get_search_exact(sp,args,track_name,artist,album)
@@ -436,8 +436,8 @@ def get_results_for_track(sp,args,track_name,artist,album):
             result_count = len(results)
 
     # If there is still a duplicate, prompt for a choice
-    if result_count > 1 and args.interactive:
-        results = select_duplicate(results,track_name,artist,album,True)
+    if show_list or (result_count > 1 and prompt_for_choice):
+        results = select_duplicate(results,track_name,artist,album,prompt_for_choice)
         result_count = len(results)
 
     # If there is still a duplicate, pick the most popular, or the first in the list with the same popularity
@@ -627,18 +627,17 @@ def find_album(sp,args,artist,album):
             results_base = new_base
             result_count = len(results_base)
 
-    if args.add or args.show_search_details:
-        select_duplicate_album(results_base,artist,album,False)
-
 #    if show_details:
 #        for item in results['albums']['items']:
 #            pprint.pprint(item)
 
     if result_count == 1:
-        return results['albums']['items'][0]
+        return results_base['albums']['items'][0]
     elif result_count == 0:
         print("Not found")
         return None
+    elif args.add or args.show_search_details or args.interactive:
+        return select_duplicate_album(results_base,artist,album,args.interactive)
     else:
         print("Duplicates found")
         return None
@@ -944,11 +943,11 @@ def main():
 
     validate_search_overrides()
 
-    client_id = '#YOURCLIENTID'
-    client_secret = '#YOURCLIENTSECRET'
+    client_id = 'your-client-id'
+    client_secret = 'your-client-secret'
     redirect_uri = 'http://localhost/'
     scope = "user-read-private user-library-read playlist-read-private playlist-modify-private user-read-recently-played"
-    username = '#YOURUSERNAME'
+    username = 'your-username'
 
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
 #    sp.trace = True
@@ -981,14 +980,14 @@ def main():
     elif args.add:
         if args.playlist and args.artist and args.album:
             if args.track_name:
-                print("Add track")
-                track = find_track(sp,args.track_name,args.artist,args.album)
-                if track:
-                    playlists = sp.user_playlists(user_id)
-                    process_playlists_add_track(playlists['items'],sp,args,track)
-                    while playlists['next']:
-                        playlists = sp.next(playlists)
-                        process_playlists_add_track(playlists['items'],sp,args,track)
+                print("Add track (Not implemented)")
+#                track = find_track(sp,args.track_name,args.artist,args.album)
+#                if track:
+#                    playlists = sp.user_playlists(user_id)
+#                    process_playlists_add_track(playlists['items'],sp,args,track)
+#                    while playlists['next']:
+#                        playlists = sp.next(playlists)
+#                        process_playlists_add_track(playlists['items'],sp,args,track)
             else:
                 print("Add album")
                 album = find_album(sp,args,args.artist,args.album)
@@ -1023,12 +1022,12 @@ def main():
                             sp.user_playlist_unfollow(user_id,playlist['id'])
                 while playlists['next']:
                     playlists = sp.next(playlists)
-                for playlist in playlists['items']:
-                    if playlist['name'] == args.playlist:
-                        if args.dryrun:
-                            print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
-                        else:
-                            sp.user_playlist_unfollow(user_id,playlist['id'])
+                    for playlist in playlists['items']:
+                        if playlist['name'] == args.playlist:
+                            if args.dryrun:
+                                print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
+                            else:
+                                sp.user_playlist_unfollow(user_id,playlist['id'])
     elif args.list:
             if args.first_albums:
                 playlists = sp.user_playlists(user_id)
@@ -1046,28 +1045,28 @@ def main():
                 playlists = sp.user_playlists(user_id)
                 for playlist in playlists['items']:
                     if playlist['name'] == args.playlist:
-                        if args.dryrun:
-                            print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
-                        else:
-                            sp.user_playlist_unfollow(user_id,playlist['id'])
+                        tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
+                        select_duplicate(tracks['items'],'','','',False)
+                        while tracks['next']:
+                            tracks = sp.next(tracks)
+                            select_duplicate(tracks['items'],'','','',False)
                 while playlists['next']:
                     playlists = sp.next(playlists)
-                for playlist in playlists['items']:
-                    if playlist['name'] == args.playlist:
-                        if args.dryrun:
-                            print("Would delete playlist %s (%s)" % (playlist['name'], playlist['id']))
-                        else:
-                            sp.user_playlist_unfollow(user_id,playlist['id'])
+                    for playlist in playlists['items']:
+                        if playlist['name'] == args.playlist:
+                            tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
+                            select_duplicate(tracks['items'],'','','',False)
+                            while tracks['next']:
+                                tracks = sp.next(tracks)
+                                select_duplicate(tracks['items'],'','','',False)
             elif args.recommendations:
                 if args.artist:
                     if args.album:
                         if args.track_name:
-                            track = get_results_for_track(sp,args,args.track_name,args.artist,args.album)
+                            track = get_results_for_track(sp,args,args.track_name,args.artist,args.album,False,args.interactive)
                             if track and len(track) > 0:
                                 tracks = sp.recommendations(seed_tracks=[track[0]['id']])
                                 process_tracks(tracks['tracks'],sp,args)
-                        else:
-                            album = get_results_for_album(sp,args,args.artist,args.album,True,False)
                     else:
                         artist = find_artist(sp,args,args.artist,True)
                         if artist:
