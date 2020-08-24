@@ -1,7 +1,7 @@
 # spotify-playlist.py
 Python script to perform various useful playlist-related functions on Spotify
 
-Created purely for muy own use, but might be of interest to others
+Created purely for my own use, but might be of interest to others
 
 # Setup
 
