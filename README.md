@@ -108,5 +108,5 @@ Spotify allows duplicate playlist names, so if you run the same command multiple
 
 You can set the description for a playlist with:
 
-   python spotify-playlist.pl --set-description <desc> --playlist <playlist name>
+    python spotify-playlist.pl --set-description <desc> --playlist <playlist name>
 
