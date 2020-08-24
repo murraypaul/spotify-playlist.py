@@ -98,9 +98,11 @@ You can remove recently played tracks from a specific playlist with:
 
 You can create a playlist from a CSV file with:
 
-    python spotify-playlist.pl --create --file <file.csv> --playlist <playlist name>
+    python spotify-playlist.pl --create --file <file.csv> 
     
 The CSV file is expected to be in the format Track, Artist, Album, * (further columns are ignored), with no header row.
+
+The playlist name is taken from the file name.
 
 Spotify allows duplicate playlist names, so if you run the same command multiple times you will get multiple playlists with the same name.
 
