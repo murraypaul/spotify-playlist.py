@@ -67,26 +67,32 @@ You can get recommendations based on an artist or track with eg:
 
 ## List recently played items
 You can show recently played tracks with:
+
     python spotify-playlist.pl --list --recent
 
 You can show recently played tracks from a specific playlist with:
-    python spotify-playlist.pl --list --recent --playlist <playlist name>
+
+python spotify-playlist.pl --list --recent --playlist <playlist name>
 
 ## List items from playlists
 
 You can show all tracks on a playlist with:
-    python spotify-playlist.pl --list --all --playlist <playlist name>
+
+python spotify-playlist.pl --list --all --playlist <playlist name>
     
 You can show the only tracks on the first N albums on a playlist with:
-    python spotify-playlist.pl --list --first_albums N --playlist <playlist name>
+
+python spotify-playlist.pl --list --first_albums N --playlist <playlist name>
 
 ## Remove items from playlists
 
 You can remove tracks on the first N albums on a playlist with:
-    python spotify-playlist.pl --rempve --first_albums N --playlist <playlist name>
+
+python spotify-playlist.pl --rempve --first_albums N --playlist <playlist name>
 
 You can remove recently played tracks from a specific playlist with:
-    python spotify-playlist.pl --remove --recent --playlist <playlist name>
+
+python spotify-playlist.pl --remove --recent --playlist <playlist name>
 
 ## Create playlists
 
