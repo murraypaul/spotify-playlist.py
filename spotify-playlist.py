@@ -968,6 +968,11 @@ def main():
     scope = "user-read-private user-library-read playlist-read-private playlist-modify-private user-read-recently-played"
     username = 'your-username'
 
+    with open('credentials.txt','r') as credfile:
+        client_id = credfile.readline().strip()
+        client_secret = credfile.readline().strip()
+        username = credfile.readline().strip()
+
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
 #    sp.trace = True
     sp.trace = False
