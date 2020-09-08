@@ -215,7 +215,7 @@ def remove_brackets(text):
         text = text.partition("(")[0]
     return text
 
-def select_duplicate(results,track_name,artist_name,album_name,ask=True):
+def select_duplicate(sp,args,results,track_name,artist_name,album_name,ask=True):
     print("Results for          %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
     for i in range(len(results)):
         result = results[i]
@@ -234,21 +234,24 @@ def select_duplicate(results,track_name,artist_name,album_name,ask=True):
         explicit = " "
         if result['explicit']:
             explicit = "Y"
-        print("                 %02d: %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
-                i+1,
-                result['name'],
-                artists,
-                album['name'],
-                album['album_type'],
-                explicit,
-                album['release_date'][0:4],
-                result['track_number'],
-                album['total_tracks'],
-                duration_min,
-                duration_sec,
-                result['popularity'],
-                result['uri']
-                ))
+        if 0:
+            print("* %s - %s" % (result['name'], artists))
+        else:
+            print("                 %02d: %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+                    i+1,
+                    result['name'],
+                    artists,
+                    album['name'],
+                    album['album_type'],
+                    explicit,
+                    album['release_date'][0:4],
+                    result['track_number'],
+                    album['total_tracks'],
+                    duration_min,
+                    duration_sec,
+                    result['popularity'],
+                    result['uri']
+                    ))
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -258,24 +261,39 @@ def select_duplicate(results,track_name,artist_name,album_name,ask=True):
             pass
     return []
 
-def select_duplicate_album(results,artist_name,album_name,ask=True):
+def print_album(sp,args,count,album):
+    artists = "";
+    for artist in album['artists']:
+        if len(artists) > 0:
+            artists = artists + ", "
+        artists = artists + artist['name']
+    print_album_details(sp,args,
+        count,
+        artists,
+        album['name'],
+        album['album_type'],
+        album['release_date'][0:4],
+        album['total_tracks'],
+        album['uri']
+        )
+
+
+def print_album_details(sp,args,count,artist,album,type,release_date,total_tracks,uri):
+    print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s %02d %s" % (
+            count,
+            artist,
+            album,
+            type,
+            release_date,
+            total_tracks,
+            uri
+            ))
+
+def select_duplicate_album(sp,args,results,artist_name,album_name,ask=True):
     print("Results for          %24.24s; %48.48s" % (artist_name, album_name))
     for i in range(len(results)):
-        artists = "";
-        for artist in results[i]['artists']:
-            if len(artists) > 0:
-                artists = artists + ", "
-            artists = artists + artist['name']
         album = results[i]
-        print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s %02d %s" % (
-                i+1,
-                artists,
-                album['name'],
-                album['album_type'],
-                album['release_date'][0:4],
-                album['total_tracks'],
-                album['uri']
-                ))
+        print_album(sp,args,i+1,album)
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -285,7 +303,7 @@ def select_duplicate_album(results,artist_name,album_name,ask=True):
             pass
     return []
 
-def select_duplicate_artist(results,artist_name,ask=True):
+def select_duplicate_artist(sp,args,results,artist_name,ask=True):
     print("Results for          %24.24s" % (artist_name))
     for i in range(len(results)):
         artist = results[i]
@@ -304,7 +322,7 @@ def select_duplicate_artist(results,artist_name,ask=True):
             pass
     return []
 
-def process_tracks(tracks,sp,args):
+def process_tracks(sp,args,tracks):
     show_tracks = []
     for entry in tracks:
         context = None
@@ -330,10 +348,10 @@ def process_tracks(tracks,sp,args):
         if show:
             show_tracks.append(entry)
     if args.list and len(show_tracks) > 0:
-        select_duplicate(show_tracks,'','','',False)
+        select_duplicate(sp,args,show_tracks,'','','',False)
 
 
-def process_first_albums(playlists,sp,args):
+def process_first_albums(sp,args,playlists):
     for playlist in playlists:
         if args.playlist == playlist['name']:
             if playlist['tracks']['total'] > 0:
@@ -346,6 +364,7 @@ def process_first_albums(playlists,sp,args):
                     if track['track']['album'] == album:
                         first_album_tracks.append(track)
                     else:
+                        print_album(sp,args,new_album_count,album)
                         new_album_count = new_album_count + 1
                         if new_album_count >  args.first_albums:
                             break;
@@ -361,7 +380,7 @@ def process_first_albums(playlists,sp,args):
                 else:
                     sp.user_playlist_remove_all_occurrences_of_tracks(sp.me()['id'],playlist['id'],tracks_to_remove)
             elif args.list:
-                select_duplicate(first_album_tracks,'','','',False)
+                select_duplicate(sp,args,first_album_tracks,'','','',False)
 
 
 def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_choice):
@@ -437,7 +456,7 @@ def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_c
 
     # If there is still a duplicate, prompt for a choice
     if show_list or (result_count > 1 and prompt_for_choice):
-        results = select_duplicate(results,track_name,artist,album,prompt_for_choice)
+        results = select_duplicate(sp,args,results,track_name,artist,album,prompt_for_choice)
         result_count = len(results)
 
     # If there is still a duplicate, pick the most popular, or the first in the list with the same popularity
@@ -531,7 +550,7 @@ def get_results_for_album(sp,args,artist,album,show_list,prompt_for_choice):
 
     # If there is still a duplicate, prompt for a choice, or pick first
     if show_list or (result_count > 1 and prompt_for_choice):
-        results = select_duplicate_album(results,artist,album,prompt_for_choice)
+        results = select_duplicate_album(sp,args,results,artist,album,prompt_for_choice)
         result_count = len(results)
 
     if result_count > 1:
@@ -637,7 +656,7 @@ def find_album(sp,args,artist,album):
         print("Not found")
         return None
     elif args.add or args.show_search_details or args.interactive:
-        return select_duplicate_album(results_base,artist,album,args.interactive)
+        return select_duplicate_album(sp,args,results_base,artist,album,args.interactive)
     else:
         print("Duplicates found")
         return None
@@ -665,7 +684,7 @@ def find_artist(sp,args,artist,prompt_unique):
     show = args.add or args.show_search_details
     prompt = result_count > 1 and prompt_unique
     if show or prompt:
-        results_base = select_duplicate_artist(results_base,artist,prompt)
+        results_base = select_duplicate_artist(sp,args,results_base,artist,prompt)
         result_count = len(results_base)
     
 #    if show_details:
@@ -681,7 +700,7 @@ def find_artist(sp,args,artist,prompt_unique):
         print("Duplicates found")
         return None
 
-def process_playlists_add_album(playlists,sp,args,album):
+def process_playlists_add_album(sp,args,playlists,album):
     tracks = sp.album_tracks(album['id'])
     track_ids = []
     for track in tracks['items']:
@@ -993,25 +1012,25 @@ def main():
                 album = find_album(sp,args,args.artist,args.album)
                 if album:
                     playlists = sp.user_playlists(user_id)
-                    process_playlists_add_album(playlists['items'],sp,args,album)
+                    process_playlists_add_album(sp,args,playlists['items'],album)
                     while playlists['next']:
                         playlists = sp.next(playlists)
-                        process_playlists_add_album(playlists['items'],sp,args,album)
+                        process_playlists_add_album(sp,args,playlists['items'],album)
     elif args.delete:
         if args.playlist:
             if args.first_albums:
                 print("Deleting initial albums from playlist")
                 playlists = sp.user_playlists(user_id)
-                process_first_albums(playlists['items'],sp,args)
+                process_first_albums(sp,args,playlists['items'])
 #                while playlists['next']:
 #                    playlists = sp.next(playlists)
 #                    process_first_albums(playlists['items'],sp,args)
             elif args.recent:
                 tracks = sp.current_user_recently_played()
-                process_tracks(tracks['items'],sp,args)
+                process_tracks(sp,args,tracks['items'])
                 while tracks['next']:
                     tracks = sp.next(tracks)
-                    process_tracks(tracks['items'],sp,args)
+                    process_tracks(sp,args,tracks['items'])
             elif args.all:
                 playlists = sp.user_playlists(user_id)
                 for playlist in playlists['items']:
@@ -1031,34 +1050,34 @@ def main():
     elif args.list:
             if args.first_albums:
                 playlists = sp.user_playlists(user_id)
-                process_first_albums(playlists['items'],sp,args)
+                process_first_albums(sp,args,playlists['items'])
 #                while playlists['next']:
 #                    playlists = sp.next(playlists)
 #                    process_first_albums(playlists['items'],sp,args)
             elif args.recent:
                 tracks = sp.current_user_recently_played()
-                process_tracks(tracks['items'],sp,args)
+                process_tracks(sp,args,tracks['items'])
                 while tracks['next']:
                     tracks = sp.next(tracks)
-                    process_tracks(tracks['items'],sp,args)
+                    process_tracks(sp,args,tracks['items'])
             elif args.all:
                 playlists = sp.user_playlists(user_id)
                 for playlist in playlists['items']:
                     if playlist['name'] == args.playlist:
                         tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
-                        select_duplicate(tracks['items'],'','','',False)
+                        select_duplicate(sp,args,tracks['items'],'','','',False)
                         while tracks['next']:
                             tracks = sp.next(tracks)
-                            select_duplicate(tracks['items'],'','','',False)
+                            select_duplicate(sp,args,tracks['items'],'','','',False)
                 while playlists['next']:
                     playlists = sp.next(playlists)
                     for playlist in playlists['items']:
                         if playlist['name'] == args.playlist:
                             tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
-                            select_duplicate(tracks['items'],'','','',False)
+                            select_duplicate(sp,args,tracks['items'],'','','',False)
                             while tracks['next']:
                                 tracks = sp.next(tracks)
-                                select_duplicate(tracks['items'],'','','',False)
+                                select_duplicate(sp,args,tracks['items'],'','','',False)
             elif args.recommendations:
                 if args.artist:
                     if args.album:
@@ -1066,12 +1085,12 @@ def main():
                             track = get_results_for_track(sp,args,args.track_name,args.artist,args.album,False,args.interactive)
                             if track and len(track) > 0:
                                 tracks = sp.recommendations(seed_tracks=[track[0]['id']])
-                                process_tracks(tracks['tracks'],sp,args)
+                                process_tracks(sp,args,tracks['tracks'])
                     else:
                         artist = find_artist(sp,args,args.artist,True)
                         if artist:
                             tracks = sp.recommendations(seed_artists=[artist['id']])
-                            process_tracks(tracks['tracks'],sp,args)
+                            process_tracks(sp,args,tracks['tracks'])
 
 if __name__ == '__main__':
     main()
