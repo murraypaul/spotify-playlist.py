@@ -136,6 +136,7 @@ def get_args():
     parser.add_argument('--artist', required=False )
     parser.add_argument('--album', required=False )
     parser.add_argument('--track_name', required=False )
+    parser.add_argument('--genre', required=False )
 
     parser.add_argument('--dryrun', required=False, action="store_true", help='Do not change anything, just log what would happen')
     parser.add_argument('--interactive', required=False, action="store_true", help='Prompt for choice if there are duplicates found')
@@ -215,43 +216,47 @@ def remove_brackets(text):
         text = text.partition("(")[0]
     return text
 
+def print_track(sp,args,result,i):
+    artists = "";
+    for artist in result['artists']:
+        if len(artists) > 0:
+            artists = artists + ", "
+        artists = artists + artist['name']
+    album = result['album']
+    duration_ms = result['duration_ms']
+    duration_min = duration_ms / 60000
+    duration_totalsec = duration_ms / 1000
+    duration_sec = duration_totalsec % 60
+    explicit = " "
+    if result['explicit']:
+        explicit = "Y"
+    if 0:
+        print("* %s - %s" % (result['name'], artists))
+    else:
+        print("                 %02d: %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+                i,
+                result['name'],
+                artists,
+                album['name'],
+                album['album_type'],
+                explicit,
+                album['release_date'][0:4],
+                result['track_number'],
+                album['total_tracks'],
+                duration_min,
+                duration_sec,
+                result['popularity'],
+                result['uri']
+                ))
+
+
 def select_duplicate(sp,args,results,track_name,artist_name,album_name,ask=True):
     print("Results for          %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
     for i in range(len(results)):
         result = results[i]
         if 'track' in result:
             result = result['track']
-        artists = "";
-        for artist in result['artists']:
-            if len(artists) > 0:
-                artists = artists + ", "
-            artists = artists + artist['name']
-        album = result['album']
-        duration_ms = result['duration_ms']
-        duration_min = duration_ms / 60000
-        duration_totalsec = duration_ms / 1000
-        duration_sec = duration_totalsec % 60
-        explicit = " "
-        if result['explicit']:
-            explicit = "Y"
-        if 0:
-            print("* %s - %s" % (result['name'], artists))
-        else:
-            print("                 %02d: %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
-                    i+1,
-                    result['name'],
-                    artists,
-                    album['name'],
-                    album['album_type'],
-                    explicit,
-                    album['release_date'][0:4],
-                    result['track_number'],
-                    album['total_tracks'],
-                    duration_min,
-                    duration_sec,
-                    result['popularity'],
-                    result['uri']
-                    ))
+            print_track(sp,args,result,i+1)
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -261,7 +266,7 @@ def select_duplicate(sp,args,results,track_name,artist_name,album_name,ask=True)
             pass
     return []
 
-def print_album(sp,args,count,album):
+def print_album(sp,args,count,album,track_count=-1):
     artists = "";
     for artist in album['artists']:
         if len(artists) > 0:
@@ -274,20 +279,33 @@ def print_album(sp,args,count,album):
         album['album_type'],
         album['release_date'][0:4],
         album['total_tracks'],
+        track_count,
         album['uri']
         )
 
 
-def print_album_details(sp,args,count,artist,album,type,release_date,total_tracks,uri):
-    print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s %02d %s" % (
-            count,
-            artist,
-            album,
-            type,
-            release_date,
-            total_tracks,
-            uri
-            ))
+def print_album_details(sp,args,count,artist,album,type,release_date,total_tracks,track_count,uri):
+    if track_count != None and track_count >= 0:
+        print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s %02d/%02d %s" % (
+                count,
+                artist,
+                album,
+                type,
+                release_date,
+                track_count,
+                total_tracks,
+                uri
+                ))
+    else:
+        print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s    %02d %s" % (
+                count,
+                artist,
+                album,
+                type,
+                release_date,
+                total_tracks,
+                uri
+                ))
 
 def select_duplicate_album(sp,args,results,artist_name,album_name,ask=True):
     print("Results for          %24.24s; %48.48s" % (artist_name, album_name))
@@ -360,27 +378,39 @@ def process_first_albums(sp,args,playlists):
                 firsttrack = tracks['items'][0]['track']
                 album = firsttrack['album']
                 first_album_tracks = []
-                for track in tracks['items']:
-                    if track['track']['album'] == album:
-                        first_album_tracks.append(track)
+                while True:
+                    for track in tracks['items']:
+                        if track['track']['album'] == album:
+                            first_album_tracks.append(track)
+                        else:
+                            print_album(sp,args,new_album_count,album,len(first_album_tracks))
+                            new_album_count = new_album_count + 1
+
+                            if args.delete:
+                                tracks_to_remove = []
+                                for remove_track in first_album_tracks:
+                                    tracks_to_remove.append(remove_track['track']['id'])
+                                    if args.dryrun:
+                                        print_track(sp,args,remove_track['track'],len(tracks_to_remove))
+                                if args.dryrun:
+                                     None
+                                else:
+                                    sp.user_playlist_remove_all_occurrences_of_tracks(sp.me()['id'],playlist['id'],tracks_to_remove)
+#                            elif args.list:
+#                                select_duplicate(sp,args,first_album_tracks,'','','',False)
+
+                            if new_album_count > args.first_albums:
+                                break;
+                            album = track['track']['album']
+                            first_album_tracks = []
+                            first_album_tracks.append(track)
+
+                    if new_album_count > args.first_albums:
+                        break;
+                    elif tracks['next']:
+                        tracks = sp.next(tracks)
                     else:
-                        print_album(sp,args,new_album_count,album)
-                        new_album_count = new_album_count + 1
-                        if new_album_count >  args.first_albums:
-                            break;
-                        album = track['track']['album']
-                        first_album_tracks.append(track)
-            if args.delete:
-                tracks_to_remove = []
-                for track in first_album_tracks:
-                    tracks_to_remove.append(track['track']['id'])
-                if args.dryrun:
-                    print("Would remove tracks:")
-                    pprint.pprint(tracks_to_remove)
-                else:
-                    sp.user_playlist_remove_all_occurrences_of_tracks(sp.me()['id'],playlist['id'],tracks_to_remove)
-            elif args.list:
-                select_duplicate(sp,args,first_album_tracks,'','','',False)
+                        break;
 
 
 def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_choice):
@@ -1096,6 +1126,10 @@ def main():
                         if artist:
                             tracks = sp.recommendations(seed_artists=[artist['id']])
                             process_tracks(sp,args,tracks['tracks'])
+
+                elif args.genre:
+                    tracks = sp.recommendations(seed_genres=args.genre)
+                    process_tracks(sp,args,tracks['tracks'])
 
 if __name__ == '__main__':
     main()
