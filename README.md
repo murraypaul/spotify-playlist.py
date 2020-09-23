@@ -8,7 +8,7 @@ Created purely for my own use, but might be of interest to others
 To use, you need to create an application on the Spotify Developers Dashboard: https://developer.spotify.com/dashboard/applications
 Set the redirect url to http://localhost, and make a note of the client ID and secret.
 
-You will need to update the script at the start of the main function to include your client id, client secret and username.
+You will need to update the script at the start of the main function to include your client id, client secret and username, or create a file called credentials.txt which contains that information.
 
 This script relies on Spotipy to do all of the real work, get it from: https://github.com/plamere/spotipy
 
