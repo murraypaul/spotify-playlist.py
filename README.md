@@ -88,11 +88,11 @@ You can show the only tracks on the first N albums on a playlist with:
 
 You can remove tracks on the first N albums on a playlist with:
 
-    python spotify-playlist.pl --rempve --first_albums N --playlist <playlist name>
+    python spotify-playlist.pl --delete --first_albums N --playlist <playlist name>
 
 You can remove recently played tracks from a specific playlist with:
 
-    python spotify-playlist.pl --remove --recent --playlist <playlist name>
+    python spotify-playlist.pl --delete --recent --playlist <playlist name>
 
 ## Create playlists
 
