@@ -96,8 +96,15 @@ By default track listings will show playcounts from Spotify's recently played tr
 This will only ever include the 50 most recently played tracks.
 
 By adding --last-fm to a command, and entering Last.FM api details in credentials.txt, you
-can instead use Last.FM scrobbling data, which defaults to the last 400 played tracks, and can be
-increased to up to the last 999 played tracks with the --last-fm-recent-count parameter.
+can instead use Last.FM scrobbling data.
+
+By default all scrobbled data will be loaded the first time you use the --last-fm option,
+and will then be cached in a local file. Subsequent calls will only load scrobbled since the
+previous call. This means that the very first time you run the script with the --last-fm 
+option, expect it to take several minutes to load, if you have a large Last.FM history.
+
+If you do not want this behaviour, you can instead say to just load the most recent X scrobbles
+with --last-fm-recent-count X. These will not be cached, but reloaded each time.
 
 ## Remove items from playlists
 
