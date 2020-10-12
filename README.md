@@ -10,6 +10,8 @@ Set the redirect url to http://localhost, and make a note of the client ID and s
 
 You will need to update the script at the start of the main function to include your client id, client secret and username, or create a file called credentials.txt which contains that information.
 
+For Last.FM integration you will need to do the same for their API.
+
 This script relies on Spotipy to do all of the real work, get it from: https://github.com/plamere/spotipy
 
 # Main functions
@@ -87,6 +89,15 @@ You can show the only tracks on the first N albums on a playlist with:
 You can show just the album detais for the first N albums on a playlist with:
 
     python spotify-playlist.pl --list --first_albums N --playlist <playlist name>
+
+## Playcounts
+
+By default track listings will show playcounts from Spotify's recently played tracks data.
+This will only ever include the 50 most recently played tracks.
+
+By adding --last-fm to a command, and entering Last.FM api details in credentials.txt, you
+can instead use Last.FM scrobbling data, which defaults to the last 400 played tracks, and can be
+increased to up to the last 999 played tracks with the --last-fm-recent-count parameter.
 
 ## Remove items from playlists
 
