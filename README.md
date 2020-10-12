@@ -82,6 +82,10 @@ You can show all tracks on a playlist with:
     
 You can show the only tracks on the first N albums on a playlist with:
 
+    python spotify-playlist.pl --list --first_albums N --playlist <playlist name> --show_tracks   
+
+You can show just the album detais for the first N albums on a playlist with:
+
     python spotify-playlist.pl --list --first_albums N --playlist <playlist name>
 
 ## Remove items from playlists
