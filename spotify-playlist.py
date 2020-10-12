@@ -7,6 +7,7 @@ from lxml import html
 import requests
 import datetime
 from collections import namedtuple
+from shutil import copyfile
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -158,7 +159,7 @@ def get_args():
     marketgroup.add_argument('--no-market', required=False, action="store_true", help='Do not limit searches by user market')
     marketgroup.add_argument('--market', required=False, help='Specify market')
 
-    parser.add_argument('--last-fm-recent-count', type=int, default=400, required=False, help='How many recent tracks to retrieve from Last.FM')
+    parser.add_argument('--last-fm-recent-count', type=int, default=-1, required=False, help='How many recent tracks to retrieve from Last.FM')
 
     return parser.parse_args()
 
@@ -247,16 +248,7 @@ def print_track(sp,args,result,i,album=None):
     explicit = " "
     if result['explicit']:
         explicit = "Y"
-    playcount = "   "
-    if LastFMRecentTrackCache != None:
-        entry = LastFMRecentTrackCacheEntry(album=album_name.upper(),artist=artists.upper(),track=track_name.upper())
-        if entry in LastFMRecentTrackCache:
-            playcount = "L%2.2d" % (LastFMRecentTrackCache[entry])
-    elif SpotifyRecentTrackCache != None:
-        entry = result['uri']
-        if entry in SpotifyRecentTrackCache:
-#            print(f"Found {entry} in cache")
-            playcount = "S%2.2d" % (SpotifyRecentTrackCache[entry])
+    playcount = get_playcount_str(sp,args,artists,album_name,track_name,result['uri'])
     popularity = -1
     if 'popularity' in  result:
         popularity = result['popularity']
@@ -307,23 +299,11 @@ def print_album(sp,args,count,album,track_count=-1):
     count_source = " "
     if track_count == -1:
         track_count = 0
-        if LastFMRecentTrackCache != None:
-            count_source = "L"
-            for i,track in enumerate(sp.album_tracks(album['id'])['items']):
-                entry = LastFMRecentTrackCacheEntry(album=album['name'].upper(),artist=artists.upper(),track=track['name'].upper())
-                count = LastFMRecentTrackCache.get(entry,-1)
-                if count > 0:
-                    track_count = track_count + 1
-        elif SpotifyRecentTrackCache != None:
-            count_source = "S"
-#            pprint.pprint(SpotifyRecentTrackCache)
-            for i,track in enumerate(sp.album_tracks(album['id'])['items']):
-                entry = track['uri']
-#                print(f"Looking for '{entry}' in cache")
-                count = SpotifyRecentTrackCache.get(entry,-1)
-                if count > 0:
-#                    print("Found")
-                    track_count = track_count + 1
+        for i,track in enumerate(sp.album_tracks(album['id'])['items']):
+            playcount_str = get_playcount_str(sp,args,artists,album['name'],track['name'],track['uri'])
+            if playcount_str != None and playcount_str != "   ":
+                count_source = playcount_str[:1]
+                track_count = track_count + 1
 
     print_album_details(sp,args,
         count,
@@ -645,8 +625,9 @@ def get_results_for_album(sp,args,artist,album,show_list,prompt_for_choice):
 
     if result_count > 1:
         results = [results[0]]
+        result_count = len(results)
 
-    if show_list:
+    if show_list and result_count:
         if args.show_tracks:
             for i,track in enumerate(sp.album_tracks(results[0]['id'])['items']):
                 print_track(sp,args,track,i+1,results[0])
@@ -1090,18 +1071,81 @@ def query_recent_lastfm(sp,args):
 #            printable = f"{track.playback_date}\t{track.track}"
 #            print(str(i + 1) + " " + printable)
 #            pprint.pprint(track)
-    pprint.pprint(LastFMRecentTrackCache)
+    print(f"Cached {len(LastFMRecentTrackCache)} unique tracks.")
+#    pprint.pprint(LastFMRecentTrackCache)
 
 def init_last_fm_recent_cache(sp,args):
     global LastFMRecentTrackCache
     LastFMRecentTrackCache = {}
-    recent_tracks = LastFMUser.get_recent_tracks(args.last_fm_recent_count)
+    orig_timestamp = None
+    if args.last_fm_recent_count > 0:
+        recent_tracks = LastFMUser.get_recent_tracks(limit=args.last_fm_recent_count)
+    else:
+        orig_timestamp = init_last_fm_recent_cache_from_file(sp,args)
+        recent_tracks = LastFMUser.get_recent_tracks(limit=None,time_from=orig_timestamp)
+    print(f"Retrieved {len(recent_tracks)} from Last.FM")
+    latest_timestamp = None
     for i, track in enumerate(recent_tracks):
-        entry = LastFMRecentTrackCacheEntry(album=track.album.upper(),artist=track.track.artist.name.upper(),track=track.track.title.upper())
-        if entry in LastFMRecentTrackCache:
-            LastFMRecentTrackCache[entry] = LastFMRecentTrackCache[entry] + 1
+#        pprint.pprint(track)
+        if track == None or track.track == None or track.track.artist == None or track.track.artist.name == None or track.track.title == None:
+            print(f"Error with track {i}.")
+            pprint.pprint(track)
         else:
-            LastFMRecentTrackCache[entry] = 1
+# Oldest scrobbles have no album details?
+            if latest_timestamp == None:
+                latest_timestamp = track.timestamp
+            album = track.album
+            if album == None:
+                album = "";
+            entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=track.track.artist.name.upper(),track=track.track.title.upper())
+            if entry in LastFMRecentTrackCache:
+                LastFMRecentTrackCache[entry] = LastFMRecentTrackCache[entry] + 1
+            else:
+                LastFMRecentTrackCache[entry] = 1
+    if latest_timestamp == None:
+        latest_timestamp = orig_timestamp
+    if args.last_fm_recent_count < 0:
+#        print(f"New timestamp is {latest_timestamp}")
+        init_last_fm_recent_cache_to_file(sp,args,latest_timestamp)
+
+def init_last_fm_recent_cache_from_file(sp,args):
+    last_timestamp = None
+    try:
+        with open('lastfm_cache.txt','r') as cachefile:
+            last_timestamp = cachefile.readline().strip()
+            while True:
+                line = cachefile.readline()
+                if not line:
+                    break
+                line = line.strip()
+                data = line.split(';; ')
+                if len(data) == 4:
+                    entry = LastFMRecentTrackCacheEntry(album=data[0].upper(),artist=data[1].upper(),track=data[2].upper())
+                    LastFMRecentTrackCache[entry] = (int)(data[3])
+    except FileNotFoundError:
+        return None
+
+    print(f"Read {len(LastFMRecentTrackCache)} entries from LastFM cache file, last timestamp {last_timestamp}")
+
+    if last_timestamp != None and last_timestamp != '':
+        last_timestamp = (int)(last_timestamp) + 1
+    return last_timestamp
+
+def init_last_fm_recent_cache_to_file(sp,args,timestamp):
+    copyfile('lastfm_cache.txt','lastfm_cache.bak')
+    try:
+        with open('lastfm_cache.txt','w') as cachefile:
+            cachefile.write(f"{timestamp}\n")
+            for entry in LastFMRecentTrackCache:
+                line = f"{entry.album};; {entry.artist};; {entry.track};; {LastFMRecentTrackCache[entry]}\n"
+                cachefile.write(line)
+
+        print(f"Wrote {len(LastFMRecentTrackCache)} entries to LastFM cache file")
+    except:
+        print("Error writing cache file, restoring backup")
+        copyfile('lastfm_cache.bak','lastfm_cache.txt')
+
+    return None
 
 def init_spotify_recent_cache(sp,args):
     global SpotifyRecentTrackCache
@@ -1114,8 +1158,34 @@ def init_spotify_recent_cache(sp,args):
         else:
             SpotifyRecentTrackCache[uri] = 1
 
+
 def query_recent_spotify(sp,args):
-    pprint.pprint(SpotifyRecentTrackCache)
+    print(f"Cached {len(SpotifyRecentTrackCache)} unique tracks.")
+#    pprint.pprint(SpotifyRecentTrackCache)
+
+def get_playcount_str(sp,args,artist,album,track,uri):
+    playcount = "   "
+    if LastFMRecentTrackCache != None:
+#        pprint.pprint(LastFMRecentTrackCache)
+        entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=artist.upper(),track=track.upper())
+#        print(f"Searching for ('{album.upper()}','{artist.upper()}','{track.upper()}')")
+        count = LastFMRecentTrackCache.get(entry,-1)
+        if count > 0:
+#            print("Found")
+            playcount = "L%2.0d" % (count)
+        else: # Try with no album
+            entry = LastFMRecentTrackCacheEntry(album='',artist=artist.upper(),track=track.upper())
+#            print(f"Searching for ('{''}','{artist.upper()}','{track.upper()}')")
+            count = LastFMRecentTrackCache.get(entry,-1)
+            if count > 0:
+#                print("Found")
+                playcount = "L%2.0d" % (count)
+    elif SpotifyRecentTrackCache != None:
+        entry = uri
+        if entry in SpotifyRecentTrackCache:
+#            print(f"Found {entry} in cache")
+            playcount = "S%2.0d" % (SpotifyRecentTrackCache[entry])
+    return playcount
 
 def main():
     args = get_args()
