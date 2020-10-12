@@ -6,12 +6,19 @@ import time
 from lxml import html
 import requests
 import datetime
+from collections import namedtuple
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
+import pylast
+
 logger = logging.getLogger('myapp')
 logging.basicConfig(level='INFO')
+
+LastFMRecentTrackCache = None
+LastFMRecentTrackCacheEntry = namedtuple("LastFMRecentTrackCacheEntry",["album","artist","track"])
+SpotifyRecentTrackCache = None
 
 # todo: move this to a file
 search_overrides = []
@@ -116,6 +123,8 @@ def get_args():
     cmdgroup.add_argument('--list', required=False, action="store_true", help='List items from playlist')
     cmdgroup.add_argument('--find', required=False, action="store_true", help='Search for album (requires --artist and --album, --track is optional)')
     cmdgroup.add_argument('--add', required=False, action="store_true", help='Add tracks to end of playlist (requires --artist and --album, --track is optiona)')
+    cmdgroup.add_argument('--query', required=False, help='Query API information')
+    cmdgroup.add_argument('--playcounts', required=False, help='Manage play count information')
 
     creategroup = parser.add_mutually_exclusive_group(required=False)
     creategroup.add_argument('--file', required=False, help='Import tracks from csv file')
@@ -123,6 +132,7 @@ def get_args():
 
     urltypegroup = parser.add_mutually_exclusive_group(required=False)
     urltypegroup.add_argument('--metalstorm-top', required=False, action="store_true", help='Url is MetalStorm Top-X list')
+    urltypegroup.add_argument('--metalstorm-releases', required=False, action="store_true", help='Url is MetalStorm new releases list')
     urltypegroup.add_argument('--metalstorm-list', required=False, action="store_true", help='Url is MetalStorm user created list')
 
     parser.add_argument('--playlist', required=False, help='Only songs played from specified playlist')
@@ -141,10 +151,14 @@ def get_args():
     parser.add_argument('--dryrun', required=False, action="store_true", help='Do not change anything, just log what would happen')
     parser.add_argument('--interactive', required=False, action="store_true", help='Prompt for choice if there are duplicates found')
     parser.add_argument('--show-search-details', required=False, action="store_true", help='Show searches and raw results')
+    parser.add_argument('--show-tracks', required=False, action="store_true", help='Show tracks when normally only albums would be shown')
+    parser.add_argument('--last-fm', required=False, action="store_true", help='Enable Last.FM integration')
 
     marketgroup = parser.add_mutually_exclusive_group(required=False)
     marketgroup.add_argument('--no-market', required=False, action="store_true", help='Do not limit searches by user market')
     marketgroup.add_argument('--market', required=False, help='Specify market')
+
+    parser.add_argument('--last-fm-recent-count', type=int, default=400, required=False, help='How many recent tracks to retrieve from Last.FM')
 
     return parser.parse_args()
 
@@ -216,13 +230,16 @@ def remove_brackets(text):
         text = text.partition("(")[0]
     return text
 
-def print_track(sp,args,result,i):
+def print_track(sp,args,result,i,album=None):
+    track_name = result['name']
     artists = "";
     for artist in result['artists']:
         if len(artists) > 0:
             artists = artists + ", "
         artists = artists + artist['name']
-    album = result['album']
+    if album == None:
+        album = result['album']
+    album_name = album['name']
     duration_ms = result['duration_ms']
     duration_min = duration_ms / 60000
     duration_totalsec = duration_ms / 1000
@@ -230,14 +247,28 @@ def print_track(sp,args,result,i):
     explicit = " "
     if result['explicit']:
         explicit = "Y"
+    playcount = "   "
+    if LastFMRecentTrackCache != None:
+        entry = LastFMRecentTrackCacheEntry(album=album_name.upper(),artist=artists.upper(),track=track_name.upper())
+        if entry in LastFMRecentTrackCache:
+            playcount = "L%2.2d" % (LastFMRecentTrackCache[entry])
+    elif SpotifyRecentTrackCache != None:
+        entry = result['uri']
+        if entry in SpotifyRecentTrackCache:
+#            print(f"Found {entry} in cache")
+            playcount = "S%2.2d" % (SpotifyRecentTrackCache[entry])
+    popularity = -1
+    if 'popularity' in  result:
+        popularity = result['popularity']
     if 0:
         print("* %s - %s" % (result['name'], artists))
     else:
-        print("                 %02d: %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+        print("                 %02d: %3.3s %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
                 i,
-                result['name'],
+                playcount,
+                track_name,
                 artists,
-                album['name'],
+                album_name,
                 album['album_type'],
                 explicit,
                 album['release_date'][0:4],
@@ -245,13 +276,13 @@ def print_track(sp,args,result,i):
                 album['total_tracks'],
                 duration_min,
                 duration_sec,
-                result['popularity'],
+                popularity,
                 result['uri']
                 ))
 
 
 def select_duplicate(sp,args,results,track_name,artist_name,album_name,ask=True):
-    print("Results for          %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
+    print("Results for              %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
     for i in range(len(results)):
         result = results[i]
         if 'track' in result:
@@ -272,6 +303,28 @@ def print_album(sp,args,count,album,track_count=-1):
         if len(artists) > 0:
             artists = artists + ", "
         artists = artists + artist['name']
+
+    count_source = " "
+    if track_count == -1:
+        track_count = 0
+        if LastFMRecentTrackCache != None:
+            count_source = "L"
+            for i,track in enumerate(sp.album_tracks(album['id'])['items']):
+                entry = LastFMRecentTrackCacheEntry(album=album['name'].upper(),artist=artists.upper(),track=track['name'].upper())
+                count = LastFMRecentTrackCache.get(entry,-1)
+                if count > 0:
+                    track_count = track_count + 1
+        elif SpotifyRecentTrackCache != None:
+            count_source = "S"
+#            pprint.pprint(SpotifyRecentTrackCache)
+            for i,track in enumerate(sp.album_tracks(album['id'])['items']):
+                entry = track['uri']
+#                print(f"Looking for '{entry}' in cache")
+                count = SpotifyRecentTrackCache.get(entry,-1)
+                if count > 0:
+#                    print("Found")
+                    track_count = track_count + 1
+
     print_album_details(sp,args,
         count,
         artists,
@@ -280,24 +333,26 @@ def print_album(sp,args,count,album,track_count=-1):
         album['release_date'][0:4],
         album['total_tracks'],
         track_count,
-        album['uri']
+        album['uri'],
+        count_source
         )
 
 
-def print_album_details(sp,args,count,artist,album,type,release_date,total_tracks,track_count,uri):
+def print_album_details(sp,args,count,artist,album,type,release_date,total_tracks,track_count,uri,count_source=" "):
     if track_count != None and track_count >= 0:
-        print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s %02d/%02d %s" % (
+        print("                 %02d:    %24.24s; %48.48s; %12.12s %04.04s %1.1s%02d/%02d %s" % (
                 count,
                 artist,
                 album,
                 type,
                 release_date,
+                count_source,
                 track_count,
                 total_tracks,
                 uri
                 ))
     else:
-        print("                 %02d: %24.24s; %48.48s; %12.12s %04.04s    %02d %s" % (
+        print("                 %02d:    %24.24s; %48.48s; %12.12s %04.04s    %02d %s" % (
                 count,
                 artist,
                 album,
@@ -383,7 +438,8 @@ def process_first_albums(sp,args,playlists):
                         if track['track']['album'] == album:
                             first_album_tracks.append(track)
                         else:
-                            print_album(sp,args,new_album_count,album,len(first_album_tracks))
+                            if not args.show_tracks:
+                                print_album(sp,args,new_album_count,album,len(first_album_tracks))
                             new_album_count = new_album_count + 1
 
                             if args.delete:
@@ -402,7 +458,8 @@ def process_first_albums(sp,args,playlists):
                             if new_album_count > args.first_albums:
                                 break;
                             album = track['track']['album']
-                            first_album_tracks = []
+                            if not args.show_tracks:
+                                first_album_tracks = []
                             first_album_tracks.append(track)
 
                     if new_album_count > args.first_albums:
@@ -411,7 +468,9 @@ def process_first_albums(sp,args,playlists):
                         tracks = sp.next(tracks)
                     else:
                         break;
-
+                if args.show_tracks:
+                    for i,track in enumerate(first_album_tracks):
+                        print_track(sp,args,track['track'],i+1)
 
 def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_choice):
     search_str = "track:%s artist:%s album:%s" % (track_name, artist, album)
@@ -579,12 +638,21 @@ def get_results_for_album(sp,args,artist,album,show_list,prompt_for_choice):
 #        pprint.pprint(results)
 
     # If there is still a duplicate, prompt for a choice, or pick first
-    if show_list or (result_count > 1 and prompt_for_choice):
+    if result_count > 1 and prompt_for_choice:
         results = select_duplicate_album(sp,args,results,artist,album,prompt_for_choice)
         result_count = len(results)
 
+
     if result_count > 1:
         results = [results[0]]
+
+    if show_list:
+        if args.show_tracks:
+            for i,track in enumerate(sp.album_tracks(results[0]['id'])['items']):
+                print_track(sp,args,track,i+1,results[0])
+        else:
+            print_album(sp,args,1,results[0])
+
     track_results = []
     for album_result in results:
         tids = []
@@ -760,7 +828,7 @@ def open_dataset_html(args):
 def open_dataset(args):
     if args.file:
         return open_dataset_csv(args)
-    elif args.metalstorm_top or args.metalstorm_list:
+    elif args.url:
         return open_dataset_html(args)
     else:
         return None
@@ -782,6 +850,10 @@ def get_playlist_name_html_metalstorm_list(data,args):
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + user + ": " + title + ' (' + date + ')'
 
+def get_playlist_name_html_metalstorm_releases(data,args):
+    title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
+    return 'MetalStorm: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
+
 def get_playlist_name(data,args):
     if args.file:
         return get_playlist_name_csv(data,args)
@@ -789,6 +861,8 @@ def get_playlist_name(data,args):
         return get_playlist_name_html_metalstorm_top(data,args)
     elif args.metalstorm_list:
         return get_playlist_name_html_metalstorm_list(data,args)
+    elif args.metalstorm_releases:
+        return get_playlist_name_html_metalstorm_releases(data,args)
     else:
         return None
 
@@ -819,8 +893,6 @@ def get_tracks_to_import_html_metalstorm_top(data,args):
     return tracks
 
 def get_tracks_to_import_html_metalstorm_list(data,args):
-    artists = data.xpath('//*[@id="page-content"]/table/tr/td/div/table/tr/td[3]/b/a/text()')
-    albums = data.xpath('//*[@id="page-content"]/table/tr/td/div/table/tr/td[3]/a/text()')
     lines = data.xpath('//*[@id="page-content"]/table/tr/td/div/table/tr')
 
     tracks = []
@@ -829,8 +901,27 @@ def get_tracks_to_import_html_metalstorm_list(data,args):
         if not " - " in line_text:
             continue
 
-#        print(line.text_content().strip())
         line_text = line_text.partition(".")[2].strip()
+        artist = line_text.partition(" - ")[0].strip()
+        album = line_text.partition(" - ")[2].strip()
+        album = album.partition("Style:")[0]
+        print("(%s;%s)" % (artist, album))
+        track = ['*', artist, album]
+        tracks.append(track)
+
+    return tracks
+
+def get_tracks_to_import_html_metalstorm_releases(data,args):
+    lines = data.xpath('//*[@id="page-content"]/div/div/table/tr/td/a')
+
+    tracks = []
+    for line in lines:
+        line_text = line.text_content().strip()
+#        print("%s" % line_text)
+        if not " - " in line_text:
+            continue
+
+#        line_text = line_text.partition(".")[2].strip()
         artist = line_text.partition(" - ")[0].strip()
         album = line_text.partition(" - ")[2].strip()
         album = album.partition("Style:")[0]
@@ -847,6 +938,8 @@ def get_tracks_to_import(data,args):
         return get_tracks_to_import_html_metalstorm_top(data,args)
     elif args.metalstorm_list:
         return get_tracks_to_import_html_metalstorm_list(data,args)
+    elif args.metalstorm_releases:
+        return get_tracks_to_import_html_metalstorm_releases(data,args)
     else:
         return None
 
@@ -987,6 +1080,43 @@ def create_playlist(sp,args):
             print(item)
 
 
+def query_recent(sp,args):
+    if args.last_fm:
+        query_recent_lastfm(sp,args)
+    else:
+        query_recent_spotify(sp,args)
+
+def query_recent_lastfm(sp,args):
+#            printable = f"{track.playback_date}\t{track.track}"
+#            print(str(i + 1) + " " + printable)
+#            pprint.pprint(track)
+    pprint.pprint(LastFMRecentTrackCache)
+
+def init_last_fm_recent_cache(sp,args):
+    global LastFMRecentTrackCache
+    LastFMRecentTrackCache = {}
+    recent_tracks = LastFMUser.get_recent_tracks(args.last_fm_recent_count)
+    for i, track in enumerate(recent_tracks):
+        entry = LastFMRecentTrackCacheEntry(album=track.album.upper(),artist=track.track.artist.name.upper(),track=track.track.title.upper())
+        if entry in LastFMRecentTrackCache:
+            LastFMRecentTrackCache[entry] = LastFMRecentTrackCache[entry] + 1
+        else:
+            LastFMRecentTrackCache[entry] = 1
+
+def init_spotify_recent_cache(sp,args):
+    global SpotifyRecentTrackCache
+    SpotifyRecentTrackCache = {}
+    tracks = sp.current_user_recently_played()
+    for track in tracks['items']:
+        uri = track['track']['uri']
+        if uri in SpotifyRecentTrackCache:
+            SpotifyRecentTrackCache[uri] = SpotifyRecentTrackCache[uri] + 1
+        else:
+            SpotifyRecentTrackCache[uri] = 1
+
+def query_recent_spotify(sp,args):
+    pprint.pprint(SpotifyRecentTrackCache)
+
 def main():
     args = get_args()
 
@@ -997,17 +1127,31 @@ def main():
     redirect_uri = 'http://localhost/'
     scope = "user-read-private user-library-read playlist-read-private playlist-modify-private user-read-recently-played"
     username = 'your-username'
+    last_fm_client_id = 'your-last-fm-client-id'
+    last_fm_client_secret = 'your-last-fm-client-secret'
+    last_fm_username = 'your-last-fm-username'
 
     with open('credentials.txt','r') as credfile:
         client_id = credfile.readline().strip()
         client_secret = credfile.readline().strip()
         username = credfile.readline().strip()
+        last_fm_client_id = credfile.readline().strip()
+        last_fm_client_secret = credfile.readline().strip()
+        last_fm_username = credfile.readline().strip()
 
     sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
 #    sp.trace = True
     sp.trace = False
 
     user_id = sp.me()['id']
+    init_spotify_recent_cache(sp,args)
+
+    if args.last_fm and last_fm_client_id != "" and last_fm_client_secret != "" and last_fm_username != "":
+        global LastFM
+        LastFM = pylast.LastFMNetwork(api_key=last_fm_client_id, api_secret=last_fm_client_secret, username=last_fm_username)
+        global LastFMUser
+        LastFMUser = LastFM.get_user(last_fm_username)
+        init_last_fm_recent_cache(sp,args)
 
     if args.create:
         create_playlist(sp,args)
@@ -1130,6 +1274,9 @@ def main():
                 elif args.genre:
                     tracks = sp.recommendations(seed_genres=args.genre)
                     process_tracks(sp,args,tracks['tracks'])
+    elif args.query:
+        if args.query == "recent":
+            query_recent(sp,args)
 
 if __name__ == '__main__':
     main()
