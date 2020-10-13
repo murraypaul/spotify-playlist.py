@@ -12,6 +12,11 @@ from shutil import copyfile
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, quote_plus, unquote_plus
+
+import json
+
 import pylast
 
 logger = logging.getLogger('myapp')
@@ -29,6 +34,8 @@ SearchOverrides = []
 TrackPlaylistCache = {}
 PlaylistDetailsCache = {}
 
+WebOutput = None
+
 def get_args():
     parser = argparse.ArgumentParser(description='Spotify toolbox')
     cmdgroup = parser.add_mutually_exclusive_group(required=True)
@@ -39,6 +46,7 @@ def get_args():
     cmdgroup.add_argument('--find', required=False, action="store_true", help='Search for album (requires --artist and --album, --track is optional)')
     cmdgroup.add_argument('--add', required=False, action="store_true", help='Add tracks to end of playlist (requires --artist and --album, --track is optiona)')
     cmdgroup.add_argument('--query', required=False, help='Query API information')
+    cmdgroup.add_argument('--server', type=int, required=False, help='Start web server on specified port')
 
     creategroup = parser.add_mutually_exclusive_group(required=False)
     creategroup.add_argument('--file', required=False, help='Import tracks from csv file')
@@ -172,52 +180,64 @@ def print_track(result,i,album=None):
     playlist = ""
     if len(playlists) > 0:
         playlist = playlists[0]
-    if 0:
-        print("* %s - %s" % (result['name'], artists))
-    elif Args.show_playlist_membership:
-        print("                 %02d: %3.3s %24.24s; %24.24s; %36.36s; %24.24s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
-                i,
-                playcount,
-                track_name,
-                artists,
-                album_name,
-                playlist,
-                album['album_type'],
-                explicit,
-                album['release_date'][0:4],
-                result['track_number'],
-                album['total_tracks'],
-                duration_min,
-                duration_sec,
-                popularity,
-                result['uri']
-                ))
-        if len(playlists) > 1:
-            for pi in range(1,len(playlists)):
-                print("                     %3.3s %24.24s  %24.24s  %36.36s  %24.24s" % (
-                    "",
-                    "",
-                    "",
-                    "",
-                    playlists[pi]
-                    ))
+    if WebOutput != None:
+        WebOutput.wfile.write((f"<td class='track-number'>{i}</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='play-count'>{playcount}</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='track-name'>{track_name}</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='artist'>{artists}</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='album'>{album_name}</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='playlist'>").encode("utf-8"))
+        for playlist in playlists:
+            WebOutput.wfile.write((f"{playlist}<br/>").encode("utf-8"))
+        WebOutput.wfile.write((f"</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='track-uri'>{result['uri']}</td>\n").encode("utf-8"))
     else:
-        print("                 %02d: %3.3s %48.48s; %26.26s; %36.36s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
-                i,
-                playcount,
-                track_name,
-                artists,
-                album_name,
-                album['album_type'],
-                explicit,
-                album['release_date'][0:4],
-                result['track_number'],
-                album['total_tracks'],
-                duration_min,
-                duration_sec,
-                popularity,
-                result['uri']
-                ))
+        if 0:
+            print("* %s - %s" % (result['name'], artists))
+        elif Args.show_playlist_membership:
+            print("                 %02d: %3.3s %24.24s; %24.24s; %36.36s; %24.24s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+                    i,
+                    playcount,
+                    track_name,
+                    artists,
+                    album_name,
+                    playlist,
+                    album['album_type'],
+                    explicit,
+                    album['release_date'][0:4],
+                    result['track_number'],
+                    album['total_tracks'],
+                    duration_min,
+                    duration_sec,
+                    popularity,
+                    result['uri']
+                    ))
+            if len(playlists) > 1:
+                for pi in range(1,len(playlists)):
+                    print("                     %3.3s %24.24s  %24.24s  %36.36s  %24.24s" % (
+                        "",
+                        "",
+                        "",
+                        "",
+                        playlists[pi]
+                        ))
+        else:
+            print("                 %02d: %3.3s %48.48s; %26.26s; %36.36s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+                    i,
+                    playcount,
+                    track_name,
+                    artists,
+                    album_name,
+                    album['album_type'],
+                    explicit,
+                    album['release_date'][0:4],
+                    result['track_number'],
+                    album['total_tracks'],
+                    duration_min,
+                    duration_sec,
+                    popularity,
+                    result['uri']
+                    ))
 
 
 def select_duplicate(results,track_name,artist_name,album_name,ask=True):
@@ -1462,13 +1482,228 @@ def main():
                             process_tracks(tracks['tracks'])
 
                 elif Args.genre:
-                    tracks = SpotifyAPI.recommendations(seed_genres=Args.genre)
+                    tracks = SpotifyAPI.recommendations(seed_genres=[Args.genre])
                     process_tracks(tracks['tracks'])
     elif Args.query:
         if Args.query == "recent":
             query_recent()
         elif Args.query == "playlist":
             query_playlist()
+    elif Args.server:
+        with HTTPServer(('0.0.0.0', Args.server), web_server) as httpd:
+            print(f"Running on port {Args.server}")
+            httpd.serve_forever()
+
+
+class web_server(BaseHTTPRequestHandler):
+    def do_GET(self):
+        global WebOutput
+        WebOutput = self
+        self.parsed_path = urlparse(self.path)
+        if self.parsed_path.path == "/":
+            self.do_GET_main_page()
+        elif self.parsed_path.path == "/search":
+            self.do_GET_search()
+        else:
+            self.do_GET_error()
+        WebOutput = None
+
+    def do_GET_error(self):
+        self.send_response(404)
+        self.end_headers()
+
+
+    def do_GET_main_page(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.wfile.write(b"</head>\n")
+        self.wfile.write(b"<body>\n")
+        self.wfile.write(b"<h1>Spotify Toolbox</h1>\n")
+        self.wfile.write(b"<ul>\n")
+        self.wfile.write(b'<li><a href="/search">Search</a></li>\n')
+        self.wfile.write(b"</ul>\n")
+
+    def do_GET_search(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.wfile.write(b'''
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<style>
+* {box-sizing: border-box;}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.topnav {
+  overflow: hidden;
+  background-color: #e9e9e9;
+}
+
+.topnav a {
+  float: left;
+  display: block;
+  color: black;
+  text-align: center;
+  padding: 14px 16px;
+  text-decoration: none;
+  font-size: 17px;
+}
+
+.topnav a:hover {
+  background-color: #ddd;
+  color: black;
+}
+
+.topnav a.active {
+  background-color: #2196F3;
+  color: white;
+}
+
+.topnav .search-container {
+  float: left;
+}
+
+.topnav input[type=text] {
+  padding: 6px;
+  margin-top: 8px;
+  font-size: 17px;
+  border: none;
+}
+
+.topnav .search-container button {
+  float: right;
+  padding: 6px 10px;
+  margin-top: 8px;
+  margin-right: 16px;
+  background: #ddd;
+  font-size: 17px;
+  border: none;
+  cursor: pointer;
+}
+
+.topnav .search-container button:hover {
+  background: #ccc;
+}
+
+.album-container {
+    border: 3px solid #fff;
+    padding: 20px;
+}
+
+.album-image {
+    width: 25%;
+    float: left;
+    padding: 20px;
+    border: 2px solid red;
+} 
+.album-tracklist {
+    width: 75%;
+    float: left;
+    padding: 20px;
+    border: 2px solid red;
+} 
+
+.album-tracklist table { width: 100%; }
+.album-tracklist .track-number { width: 5%; }
+.album-tracklist .play-count { width: 5%; }
+.album-tracklist .track-name { width: 25%; }
+.album-tracklist .artist { width: 15%; }
+.album-tracklist .album { width: 15%; }
+.album-tracklist .playlist { width: 15%; }
+.album-tracklist .track-uri { display: none; }
+ 
+.clear {
+    clear: both;
+}
+
+@media screen and (max-width: 600px) {
+  .topnav .search-container {
+    float: none;
+  }
+  .topnav a, .topnav input[type=text], .topnav .search-container button {
+    float: none;
+    display: block;
+    text-align: left;
+    width: 100%;
+    margin: 0;
+    padding: 14px;
+  }
+  .topnav input[type=text] {
+    border: 1px solid #ccc;
+  }
+}
+</style>''')
+        self.wfile.write(b"</head>\n")
+        self.wfile.write(b"<body>\n")
+        self.wfile.write(b"<h1>Spotify Toolbox - Search</h1>\n")
+        self.wfile.write(b'''
+<div class="topnav">
+  <div class="search-container">
+    <form action="/search">
+      <input type="text" placeholder="Search.." name="search">
+      <button type="submit"><i class="fa fa-search"></i></button>
+    </form>
+  </div>
+</div>''')
+
+        if self.parsed_path.query.startswith("search="):
+            search_term = unquote_plus(self.parsed_path.query[7:])
+            if " - " in search_term:
+                data = search_term.split("-")
+                artist = data[0].strip()
+                album = data[1].strip()
+                self.wfile.write((f"Results for {artist},{album}\n").encode("utf-8"))
+
+                results = get_search_exact('*',artist,album)
+
+                # If not found, try various changes
+                if len(results) == 0:
+                    if remove_punctuation(artist) != artist:
+                        results_artist_punctuation = get_search_exact('*',remove_punctuation(artist),album)
+                        results.extend(results_artist_punctuation)
+
+                    if remove_brackets(artist) != artist or remove_brackets(album) != album:
+                        results_all_brackets = get_search_exact('*',remove_brackets(artist),remove_brackets(album))
+                        results.extend(results_all_brackets)
+
+                for album in results:
+                    self.wfile.write(b"<hr/>")
+
+                    self.wfile.write(b"<div class='album-container'>")
+                    self.wfile.write(b"<div class='album-image'>")
+                    if len(album['images']) > 0:
+                        self.wfile.write((f"<img src='{album['images'][0]['url']}' width='100%' />").encode("utf-8"))
+                    self.wfile.write(b"</div>")
+
+                    self.wfile.write(b"<div class='album-tracklist'>")
+                    self.wfile.write(b"<table>")
+                    for i,track in enumerate(SpotifyAPI.album_tracks(album['id'])['items']):
+                        self.wfile.write(b"<tr>")
+                        print_track(track,i+1,album)
+                        self.wfile.write(b"</tr>")
+                    self.wfile.write(b"</table>")
+
+                    self.wfile.write(b"</div>")
+                    self.wfile.write(b"</div>")
+
+                    self.wfile.write(b"<div class='clear'/>")
+#                    pprint.pprint(album)
+#                    for i,track in enumerate(album):
+#                        pprint.pprint(track)
+#                        print_track(track,i+1)
+
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
 
 if __name__ == '__main__':
     main()
