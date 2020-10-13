@@ -26,6 +26,9 @@ SpotifyRecentTrackCache = None
 
 SearchOverrides = []
 
+TrackPlaylistCache = {}
+PlaylistDetailsCache = {}
+
 def get_args():
     parser = argparse.ArgumentParser(description='Spotify toolbox')
     cmdgroup = parser.add_mutually_exclusive_group(required=True)
@@ -65,6 +68,7 @@ def get_args():
     parser.add_argument('--show-search-details', required=False, action="store_true", help='Show searches and raw results')
     parser.add_argument('--show-tracks', required=False, action="store_true", help='Show tracks when normally only albums would be shown')
     parser.add_argument('--show-playlist-membership', required=False, action="store_true", help='Show which playlists tracks belong to')
+    parser.add_argument('--no-overrides', required=False, action="store_true", help='Do not use overrides file')
 
     marketgroup = parser.add_mutually_exclusive_group(required=False)
     marketgroup.add_argument('--no-market', required=False, action="store_true", help='Do not limit searches by user market')
@@ -157,17 +161,26 @@ def print_track(result,i,album=None):
         explicit = "Y"
     playcount = get_playcount_str(artists,album_name,track_name,result['uri'])
     popularity = -1
-    if 'popularity' in  result:
+    if 'popularity' in result:
         popularity = result['popularity']
+    playlists = []
+    if TrackPlaylistCache != None:
+        playlist_ids = TrackPlaylistCache.get(result['id'],[])
+        for playlist_id in playlist_ids:
+            playlists.append(PlaylistDetailsCache[playlist_id]['name'])
+    playlist = ""
+    if len(playlists) > 0:
+        playlist = playlists[0]
     if 0:
         print("* %s - %s" % (result['name'], artists))
     else:
-        print("                 %02d: %3.3s %24.24s; %24.24s; %48.48s; %12.12s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+        print("                 %02d: %3.3s %24.24s; %24.24s; %36.36s; %24.24s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
                 i,
                 playcount,
                 track_name,
                 artists,
                 album_name,
+                playlist,
                 album['album_type'],
                 explicit,
                 album['release_date'][0:4],
@@ -177,6 +190,15 @@ def print_track(result,i,album=None):
                 duration_sec,
                 popularity,
                 result['uri']
+                ))
+    if len(playlists) > 1:
+        for pi in range(1,len(playlists)):
+            print("                     %3.3s %24.24s  %24.24s  %36.36s  %24.24s" % (
+                "",
+                "",
+                "",
+                "",
+                playlists[pi]
                 ))
 
 
@@ -1008,6 +1030,16 @@ def create_playlist():
         for item in duplicate_list:
             print(item)
 
+def query_playlist():
+    if not Args.playlist:
+        return None
+
+    user_id = SpotifyAPI.me()['id']
+    playlists = SpotifyAPI.user_playlists(user_id)
+    for playlist in playlists['items']:
+        if playlist['name'] == Args.playlist:
+            pprint.pprint(playlist)
+
 
 def query_recent():
     if Args.last_fm:
@@ -1080,7 +1112,10 @@ def init_last_fm_recent_cache_from_file():
     return last_timestamp
 
 def init_last_fm_recent_cache_to_file(timestamp):
-    copyfile('lastfm_cache.txt','lastfm_cache.bak')
+    try:
+        copyfile('lastfm_cache.txt','lastfm_cache.bak')
+    except FileNotFoundError:
+        pass
     try:
         with open('lastfm_cache.txt','w') as cachefile:
             cachefile.write(f"{timestamp}\n")
@@ -1157,6 +1192,96 @@ def init_search_overrides():
         return None
     print(f"Read {len(SearchOverrides)} overrides from file")
 
+def init_playlist_cache_playlist_track(playlist,track):
+    track_id = track['track']['id']
+    playlist_id = playlist['id']
+    if track_id != None:
+        PlaylistDetailsCache[playlist_id]['tracks'].append(track_id)
+
+def init_playlist_cache_playlist(playlist):
+#    print(f"Processing playlist {playlist['name']}")
+    if playlist['id'] in PlaylistDetailsCache:
+        if playlist['snapshot_id'] != PlaylistDetailsCache[playlist['id']]['snapshot_id']:
+            print(f"Cached data for playlist {playlist['name']} is out of date, refreshing")
+            PlaylistDetailsCache[playlist['id']]['tracks'] = []
+        else:
+#            print("Using cached data")
+            return None
+    else:
+        PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'snapshot_id': playlist['snapshot_id'], 'tracks' : [] }
+
+    user_id = SpotifyAPI.me()['id']
+    tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
+    for track in tracks['items']:
+        init_playlist_cache_playlist_track(playlist,track)
+    while tracks['next']:
+        tracks = SpotifyAPI.next(tracks)
+        for track in tracks['items']:
+            init_playlist_cache_playlist_track(playlist,track)
+
+def init_playlist_cache_process():
+    for playlist_id in PlaylistDetailsCache:
+        for track_id in PlaylistDetailsCache[playlist_id]['tracks']:
+            if track_id == None:
+                continue
+            elif track_id in TrackPlaylistCache:
+                TrackPlaylistCache[track_id].append(playlist_id)
+            else:
+                TrackPlaylistCache[track_id] = [playlist_id]
+
+def init_playlist_cache():
+    init_playlist_cache_from_file()
+
+    user_id = SpotifyAPI.me()['id']
+    playlists = SpotifyAPI.user_playlists(user_id)
+    for playlist in playlists['items']:
+        init_playlist_cache_playlist(playlist)
+    while playlists['next']:
+        playlists = SpotifyAPI.next(playlists)
+        for playlist in playlists['items']:
+            init_playlist_cache_playlist(playlist)
+
+    init_playlist_cache_process()
+
+    init_playlist_cache_to_file()
+
+def init_playlist_cache_from_file():
+    try:
+        with open('playlist_cache.txt','r') as cachefile:
+            for line in cachefile:
+                line = line.strip()
+                data = line.split(';; ')
+                if len(data) >= 3:
+                    PlaylistDetailsCache[data[0]] = { 'name': data[1], 'snapshot_id': data[2], 'tracks' : [] }
+                    for i in range(3,len(data)):
+                        PlaylistDetailsCache[data[0]]['tracks'].append(data[i])
+    except FileNotFoundError:
+        return None
+
+    print(f"Read {len(PlaylistDetailsCache)} entries from playlist details cache file.")
+
+
+def init_playlist_cache_to_file():
+    try:
+        copyfile('playlist_cache.txt','playlist_cache.bak')
+    except FileNotFoundError:
+        pass
+    try:
+        with open('playlist_cache.txt','w') as cachefile:
+            for entry in PlaylistDetailsCache:
+                line = f"{entry};; {PlaylistDetailsCache[entry]['name']};; {PlaylistDetailsCache[entry]['snapshot_id']}"
+                for track in PlaylistDetailsCache[entry]['tracks']:
+                    line = line + f";; {track}"
+                line = line + "\n"
+                cachefile.write(line)
+
+        print(f"Wrote {len(PlaylistDetailsCache)} entries to playlist details cache file.")
+    except:
+        print("Error writing playlist details cache file, restoring backup")
+        copyfile('playlist_cache.bak','playlist_cache.txt')
+
+    return None
+
 
 def main():
     global Args
@@ -1185,6 +1310,10 @@ def main():
     SpotifyAPI.trace = False
 
     user_id = SpotifyAPI.me()['id']
+
+    if Args.show_playlist_membership:
+        init_playlist_cache()
+
     init_spotify_recent_cache()
 
     if Args.last_fm and last_fm_client_id != "" and last_fm_client_secret != "" and last_fm_username != "":
@@ -1194,7 +1323,8 @@ def main():
         LastFMUser = LastFM.get_user(last_fm_username)
         init_last_fm_recent_cache()
 
-    init_search_overrides()
+    if not Args.no_overrides:
+        init_search_overrides()
 
     if Args.create:
         create_playlist()
@@ -1320,6 +1450,8 @@ def main():
     elif Args.query:
         if Args.query == "recent":
             query_recent()
+        elif Args.query == "playlist":
+            query_playlist()
 
 if __name__ == '__main__':
     main()
