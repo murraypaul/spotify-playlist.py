@@ -39,7 +39,6 @@ def get_args():
     cmdgroup.add_argument('--find', required=False, action="store_true", help='Search for album (requires --artist and --album, --track is optional)')
     cmdgroup.add_argument('--add', required=False, action="store_true", help='Add tracks to end of playlist (requires --artist and --album, --track is optiona)')
     cmdgroup.add_argument('--query', required=False, help='Query API information')
-    cmdgroup.add_argument('--playcounts', required=False, help='Manage play count information')
 
     creategroup = parser.add_mutually_exclusive_group(required=False)
     creategroup.add_argument('--file', required=False, help='Import tracks from csv file')
@@ -68,6 +67,7 @@ def get_args():
     parser.add_argument('--show-search-details', required=False, action="store_true", help='Show searches and raw results')
     parser.add_argument('--show-tracks', required=False, action="store_true", help='Show tracks when normally only albums would be shown')
     parser.add_argument('--show-playlist-membership', required=False, action="store_true", help='Show which playlists tracks belong to')
+    parser.add_argument('--show-playlist-onlyowned', required=False, action="store_true", help='Only show playlist membership for playlists created by the user')
     parser.add_argument('--no-overrides', required=False, action="store_true", help='Do not use overrides file')
 
     marketgroup = parser.add_mutually_exclusive_group(required=False)
@@ -167,13 +167,14 @@ def print_track(result,i,album=None):
     if TrackPlaylistCache != None:
         playlist_ids = TrackPlaylistCache.get(result['id'],[])
         for playlist_id in playlist_ids:
-            playlists.append(PlaylistDetailsCache[playlist_id]['name'])
+            if Args.show_playlist_onlyowned == False or PlaylistDetailsCache[playlist_id]['owner_id'] == SpotifyAPI.me()['id']:
+                playlists.append(PlaylistDetailsCache[playlist_id]['name'])
     playlist = ""
     if len(playlists) > 0:
         playlist = playlists[0]
     if 0:
         print("* %s - %s" % (result['name'], artists))
-    else:
+    elif Args.show_playlist_membership:
         print("                 %02d: %3.3s %24.24s; %24.24s; %36.36s; %24.24s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
                 i,
                 playcount,
@@ -191,14 +192,31 @@ def print_track(result,i,album=None):
                 popularity,
                 result['uri']
                 ))
-    if len(playlists) > 1:
-        for pi in range(1,len(playlists)):
-            print("                     %3.3s %24.24s  %24.24s  %36.36s  %24.24s" % (
-                "",
-                "",
-                "",
-                "",
-                playlists[pi]
+        if len(playlists) > 1:
+            for pi in range(1,len(playlists)):
+                print("                     %3.3s %24.24s  %24.24s  %36.36s  %24.24s" % (
+                    "",
+                    "",
+                    "",
+                    "",
+                    playlists[pi]
+                    ))
+    else:
+        print("                 %02d: %3.3s %48.48s; %26.26s; %36.36s; %8.8s %1.1s %04.04s %02d/%02d %02d:%02d %02d %s" % (
+                i,
+                playcount,
+                track_name,
+                artists,
+                album_name,
+                album['album_type'],
+                explicit,
+                album['release_date'][0:4],
+                result['track_number'],
+                album['total_tracks'],
+                duration_min,
+                duration_sec,
+                popularity,
+                result['uri']
                 ))
 
 
@@ -208,7 +226,7 @@ def select_duplicate(results,track_name,artist_name,album_name,ask=True):
         result = results[i]
         if 'track' in result:
             result = result['track']
-            print_track(result,i+1)
+        print_track(result,i+1)
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -1203,12 +1221,11 @@ def init_playlist_cache_playlist(playlist):
     if playlist['id'] in PlaylistDetailsCache:
         if playlist['snapshot_id'] != PlaylistDetailsCache[playlist['id']]['snapshot_id']:
             print(f"Cached data for playlist {playlist['name']} is out of date, refreshing")
-            PlaylistDetailsCache[playlist['id']]['tracks'] = []
         else:
 #            print("Using cached data")
             return None
-    else:
-        PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'snapshot_id': playlist['snapshot_id'], 'tracks' : [] }
+
+    PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'snapshot_id': playlist['snapshot_id'], 'owner_id': playlist['owner']['id'], 'tracks' : [] }
 
     user_id = SpotifyAPI.me()['id']
     tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
@@ -1251,9 +1268,9 @@ def init_playlist_cache_from_file():
             for line in cachefile:
                 line = line.strip()
                 data = line.split(';; ')
-                if len(data) >= 3:
-                    PlaylistDetailsCache[data[0]] = { 'name': data[1], 'snapshot_id': data[2], 'tracks' : [] }
-                    for i in range(3,len(data)):
+                if len(data) >= 4:
+                    PlaylistDetailsCache[data[0]] = { 'name': data[1], 'snapshot_id': data[2], 'owner_id': data[3], 'tracks' : [] }
+                    for i in range(4,len(data)):
                         PlaylistDetailsCache[data[0]]['tracks'].append(data[i])
     except FileNotFoundError:
         return None
@@ -1269,7 +1286,7 @@ def init_playlist_cache_to_file():
     try:
         with open('playlist_cache.txt','w') as cachefile:
             for entry in PlaylistDetailsCache:
-                line = f"{entry};; {PlaylistDetailsCache[entry]['name']};; {PlaylistDetailsCache[entry]['snapshot_id']}"
+                line = f"{entry};; {PlaylistDetailsCache[entry]['name']};; {PlaylistDetailsCache[entry]['snapshot_id']};; {PlaylistDetailsCache[entry]['owner_id']}"
                 for track in PlaylistDetailsCache[entry]['tracks']:
                     line = line + f";; {track}"
                 line = line + "\n"
