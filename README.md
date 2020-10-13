@@ -96,9 +96,29 @@ By default track listings will show playcounts from Spotify's recently played tr
 This will only ever include the 50 most recently played tracks.
 
 By adding --last-fm to a command, and entering Last.FM api details in credentials.txt, you
-can instead use Last.FM scrobbling data, which defaults to the last 400 played tracks, and can be
-increased to up to the last 999 played tracks with the --last-fm-recent-count parameter.
+can instead use Last.FM scrobbling data.
 
+By default all scrobbled data will be loaded the first time you use the --last-fm option,
+and will then be cached in a local file. Subsequent calls will only load scrobbled since the
+previous call. This means that the very first time you run the script with the --last-fm 
+option, expect it to take several minutes to load, if you have a large Last.FM history.
+
+If you do not want this behaviour, you can instead say to just load the most recent X scrobbles
+with --last-fm-recent-count X. These will not be cached, but reloaded each time.
+
+Playcounts will be shown between the track number and the track title, and show L for Last.FM
+scrobble data or S for Spotify recent tracks data.
+
+eg.
+
+                     01:      Right Next Door To Hell;            Guns N' Roses;                              Use Your Illusion I;        album Y 1991 01/16 03:02 -1 spotify:track:5YXvG4PL4Wisyx2ScUxVFF
+                     02:                Dust N' Bones;            Guns N' Roses;                              Use Your Illusion I;        album Y 1991 02/16 04:58 -1 spotify:track:4vtXsXvSYaTfKQ0dJXbJGu
+                     03: L 1         Live And Let Die;            Guns N' Roses;                              Use Your Illusion I;        album   1991 03/16 03:02 -1 spotify:track:0rFWuqFgHAfuzE8uSB9TWR
+
+                     01: S 1                   S.O.Y.;                 Alkymist;                                        Sanctuary;        album   2020 03/08 01:41 08 spotify:track:27VSW6dfReqd3YISUeVZFU
+                     02: S 1                 The Dead;                 Alkymist;                                        Sanctuary;        album   2020 02/08 06:08 12 spotify:track:1VVGWpCKVgWMzM1C73mG64
+                     03: S 1                   Oethon;                 Alkymist;                                        Sanctuary;        album   2020 01/08 07:03 11 spotify:track:69R9bNNCMKu89siZSYgqfG
+                 
 ## Remove items from playlists
 
 You can remove tracks on the first N albums on a playlist with:
