@@ -17,103 +17,14 @@ import pylast
 logger = logging.getLogger('myapp')
 logging.basicConfig(level='INFO')
 
+SpotifyAPI = None
+Args = None
+
 LastFMRecentTrackCache = None
 LastFMRecentTrackCacheEntry = namedtuple("LastFMRecentTrackCacheEntry",["album","artist","track"])
 SpotifyRecentTrackCache = None
 
-# todo: move this to a file
-search_overrides = []
-search_overrides.append(['*','Virgin Steele','The Marriage Of Heaven And Hell Part I','spotify:album:75zT3lRU2so7sR1iV7FvlC'])
-search_overrides.append(['*','Virgin Steele','The Marriage Of Heaven And Hell Part II',None])
-search_overrides.append(['*','Virgin Steele','The House Of Atreus Act I','spotify:album:47CVkzdB6oe4SH1OlPljD3'])
-search_overrides.append(['*','Virgin Steele','The House Of Atreus Act II',None])
-search_overrides.append(['*','Trans-Siberian Orchestra','Beethoven\'s Last Night','0ycODecqUKRS9bOA7Vd5Bi'])
-search_overrides.append(['*','Hollenthon','With Vilest Of Worms To Dwell','1x1WyZKLLmnsMvYBXyYzly'])
-search_overrides.append(['*','Lingua Mortis Orchestra','LMO [Collaboration]','5cviB09AYOXN94iX5bfqvD'])
-search_overrides.append(['*','Haggard','Tales Of Ithiria','0fkDg8LzxG1hJnI3y8gXSp'])
-search_overrides.append(['*','Angtoria','God Has A Plan For Us All','5ibOK7Gvow4tl1RKSxvPeg'])
-search_overrides.append(['*','Trans-Siberian Orchestra','Christmas Eve And Other Stories','6QNuH4X7k9Fxsk3lRLOaiT'])
-search_overrides.append(['*','Autumn','Summer\'s End','3jb8MMM31N7BgzLlBTy3Mp'])
-search_overrides.append(['*','Virgin Steele','Visions Of Eden - The Lilith Project - A Barbaric Romantic Movie Of The Mind','1thBfia8rDix2nqSLvZpL0'])
-search_overrides.append(['*','Grai','Our Native Land (О Земле Родной)','spotify:album:4YG5Q9sIKKdydW4izAShkQ'])
-search_overrides.append(['*','Wuthering Heights','Far From The Madding Crowd','6XrWjvxsxAgmeIKbG8kZE4'])
-search_overrides.append(['*','Wuthering Heights','The Shadow Cabinet','7pCdMyoHEukSMz0KcCk65v'])
-search_overrides.append(['*','Arkona','Во Славу Великим!','spotify:album:3p8efk357mZuEhywLUZaIs'])
-search_overrides.append(['*','Echo Of Dalriada','Jégbontó','3oYnpsZG6kgnJIHf8Y659H'])
-search_overrides.append(['*','Arkona','От Сердца К Небу','0wAVmgGOw38yNExVldmpo2'])
-search_overrides.append(['*','Finntroll','Jaktens Tid','3ZcHD4xbp1Z7K4NlWXWsyj'])
-search_overrides.append(['*','Vintersorg','Till Fjälls','spotify:album:1gYjbJwJvwQmkTIqu7IRW7'])
-search_overrides.append(['*','Arkona','Гой, Роде, Гой!','2pfdwYocdXcQ8kHtvetBdS'])
-search_overrides.append(['*','Mithotyn','In The Sign Of The Ravens','spotify:album:10k00ITqgk2owR0qnkfBAr'])
-search_overrides.append(['*','October Falls','A Collapse Of Faith','2o0mJTwA5MzfNoIs3uhnLj'])
-search_overrides.append(['*','Myrath','Hope','2X5X8ZiawaGsvaKY7tCPv4'])
-search_overrides.append(['*','Alkonost','Na Kryliah Zova (On The Wings Of The Call)','2Jlkqwou9sMCgbFbseaFWG'])
-search_overrides.append(['*','October Falls','The Womb Of Primordial Nature','6ymPvAMU3aan53EknAxsyn'])
-search_overrides.append(['*','Dirge','Elysian Magnetic Fields','2LBaJLHP3merdxzmtExlG6'])
-search_overrides.append(['*','Slugdge','Gastronomicon','1GFWIo6uEnUSG0j715TUVB'])
-search_overrides.append(['*','Neurosis','The Eye Of Every Storm','1td0hx7C7mdZGvekzMD1CL'])
-search_overrides.append(['*','Slugdge','Dim & Slimeridden Kingdoms','1VigQgC3VjE1mkFFVOg82b'])
-search_overrides.append(['*','Cult Of Luna','Mariner [Collaboration]','7s8GMmLooF7H6awoTjbl4Z'])
-search_overrides.append(['*','Down','Down III: Over The Under','spotify:album:5zaQlZSl4g1J6XSSvRfl8o'])
-search_overrides.append(['*','Celestial Season','Solar Lovers','7MG7nO24dMamoUYpLBXqt6'])
-search_overrides.append(['*','Sahg','I','spotify:album:23XR3CMdcApNstjMmpQf33'])
-search_overrides.append(['*','New Keepers Of The Water Towers','The Cosmic Child','spotify:album:02QQMpi3AG7s5TvFyvJiV2'])
-search_overrides.append(['*','Sleep','Jerusalem','spotify:album:1u49hpxNCoTCWmJa1NXUZl'])
-search_overrides.append(['*','Tony MacAlpine','Maximum Security','33AKOG3u4OHhcYZA8ufuCi'])
-search_overrides.append(['*','Saturnus','Veronika Decides To Die','spotify:album:5Jxf2vLZ8JdNco7lAM9S4c'])
-search_overrides.append(['*','Shape Of Despair','Angels Of Distress','5eHLW4hwMsIjP9QyXx5ntw'])
-search_overrides.append(['*','Yearning','Evershade','5eVhNri7dTCrUvdZsGGoj9'])
-search_overrides.append(['*','Shape Of Despair','Illusion\'s Play','6QbxDIN3CbEMZQeQKNREVX'])
-search_overrides.append(['*','Pagan Altar','The Lords Of Hypocrisy','0mXHFpxeJyJ4aQOC77bsZL'])
-search_overrides.append(['*','Rapture','Futile','5orWqamKeISvdEqAdAoGoI'])
-search_overrides.append(['*','Kypck','Черно','spotify:album:4cXWTx8DJhzJ3uUJ9Esi0z'])
-search_overrides.append(['*','Dissection','Storm Of The Light\'s Bane','6xg1LH1tG9LfStZwv5zdV7'])
-search_overrides.append(['*','Helloween','Keeper Of The Seven Keys Part II','spotify:album:0C00ibrtAGw59osJUg5qOO'])
-search_overrides.append(['*','Helloween','Keeper Of The Seven Keys Part I','spotify:album:2UHFdmz05GmEY0J0ZbuMBp'])
-search_overrides.append(['*','Porcupine Tree','Fear Of A Blank Planet','1uekrPEWOwluQckDtkGAYM'])
-search_overrides.append(['*','Carcass','Heartwork','1xCzBTTovIpL3iMKvTM4JK'])
-search_overrides.append(['*','Pain Of Salvation','The Perfect Element, Part I','spotify:album:0yqtdNIwsXSZHL7A0QNBBb'])
-search_overrides.append(['*','Dismember','Like An Ever Flowing Stream','4i9cuK7MNbTVvezlFujln7'])
-search_overrides.append(['*','Caladan Brood','Echoes Of Battle','1frb56r2K4Trem7czARB1s'])
-search_overrides.append(['*','Accept','Restless And Wild','0xym0raBJhG64y1Oc179TX'])
-search_overrides.append(['*','Soundgarden','Badmotorfinger','spotify:album:2W6MaUiInBkna5DfBES4E3'])
-search_overrides.append(['*','Soundgarden','Superunknown','spotify:album:4K8bxkPDa5HENw0TK7WxJh'])
-search_overrides.append(['*','Devin Townsend','Ocean Machine: Biomech','spotify:album:7hjBb9Z7o4KO5AMYi5xm66'])
-search_overrides.append(['*','Carcass','Necroticism: Descanting The Insalubrious','3Tl1dAwNcRO1W6lMlpx0e3'])
-search_overrides.append(['*','Artillery','By Inheritance','0ck8S9IR41yWj50zvt8gbx'])
-search_overrides.append(['*','Eternal Tears Of Sorrow','A Virgin And A Whore','3jP2LK5eNSqMqqKhond11q'])
-search_overrides.append(['*','Avantasia','The Metal Opera Part I','spotify:album:2HA77HLuzBmzeJp0Hc4YFO'])
-search_overrides.append(['*','Katatonia','Viva Emptiness: Anti-Utopian MMXIII Edition','spotify:album:5Ej2wlQwy5c6jTH5DmuDDg'])
-search_overrides.append(['*','Blindead','Affliction XXIX II MXMVI','spotify:album:2hNcO6iygItuqaSVLVVSmW'])
-search_overrides.append(['*','Ancient Bards','The Alliance Of The Kings - The Black Crystal Sword Saga Part 1','spotify:album:46E2l00AyGutAu8IOHstsb'])
-search_overrides.append(['*','Cult Of Fire','मृत्यु का तापसी अनुध्यान','spotify:album:6mhIhyGBRzGEnjKJTzhprL'])
-search_overrides.append(['*','Oathbreaker','Eros​ | ​Anteros','spotify:album:42lF4VUn5wSf3BmRpq7jd8'])
-search_overrides.append(['*','Decapitated','Winds Of Creation','41SlpwhUgcgshKaZQULVgX'])
-search_overrides.append(['*','Nightwish','Century Child','spotify:album:44kzDmMHJn474wrwDd3pCi'])
-search_overrides.append(['*','Blood Stain Child','εpsilon','spotify:album:4TQyTokknRMto3WhTdodZK'])
-search_overrides.append(['*','Heavenwood','The Tarot Of The Bohemians: Part 1','spotify:album:53ulXwa47kJJTV70tjlAxU'])
-search_overrides.append(['*','The Algorithm','Brute Force: Overclock DLC','spotify:album:5JRbR8GX8qw2rUIym6aacv'])
-search_overrides.append(['*','Ulver','ATGCLVLSSCAP','spotify:album:60YalK9oRFXskrRyMicOqN'])
-search_overrides.append(['*','Celldweller','Transmissions: Vol. 03','spotify:album:7DVcVdk2fKm6rq1veQtR1L'])
-search_overrides.append(['*','Drowning Pool','Hellelujuah','spotify:album:7Mid85e4WO4f9GCP3Xjz8K'])
-search_overrides.append(['*','Jesu','30 Seconds To The Decline Of Planet Earth','spotify:album:15Xz6NpKJRg2htJjEPUM5U'])
-search_overrides.append(['*','Master Boot Record','Virus​.​DOS','spotify:album:6ElO2C628e79gXaKtlp5WD'])
-search_overrides.append(['*','Violet Cold','Sommermorgen (Pt. III) - Nostalgia','spotify:album:1oPojPaIKWjq73PlOXa66N'])
-search_overrides.append(['*','Harm\'s Way','Posthuman','spotify:album:1RIr3dLd64m8fh23p2gm9L'])
-search_overrides.append(['*','Dagon','Back To The Sea','6sgw9sA44BKrKnvp9Z8Z2y'])
-search_overrides.append(['*','Antlers','Beneath.Below.Behold.','spotify:album:64EdL7U6VaEdK58t18KolQ'])
-search_overrides.append(['*','Violet Cold','Sommermorgen (Pt. II) - Joy','spotify:album:7DvRTjqgeqpDQVtDa7tATR'])
-search_overrides.append(['*','Nydvind','Tetramental I: Seas Of Oblivion','spotify:album:7FHMtQtBoMAcdeVLK4oicV'])
-search_overrides.append(['*','Gloryhammer','Space 1992: Rise Of The Chaos Wizards','spotify:album:2amXcrKAK1D5OD6LKn4X10'])
-search_overrides.append(['*','Extrovert','Восхождение / Ascension','spotify:album:5mmt0xzSflxqhW7TTSOVtu'])
-search_overrides.append(['*','Gotsu Totsu Kotsu','因果応報','spotify:album:1PaPbI4O2NsmEbnFjKUOtF'])
-search_overrides.append(['*','Tengger Cavalry','Blood Sacrifice Shaman [2015 Edition]','spotify:album:0bakW1fPnzx5hupZdBNVDx'])
-search_overrides.append(['*','Periphery','Juggernaut: Alpha & Omega',['spotify:album:5oF7PocZron3xn8Pxhofgx','spotify:album:2vUuAbaoqFPcbp851dRXFt']])
-search_overrides.append(['*','Periphery','Periphery II: This Time It\'s Personal','spotify:album:5ebIq78IE2Pi9vyJOaYL4A'])
-search_overrides.append(['*','Kalevala','Кудель Белоснежного Льна','spotify:album:79RXmB7Uk3nM09FhCPm2rJ'])
-search_overrides.append(['*','Kalevala','Кукушкины дети','spotify:album:5UQuAwobie2PrdQZE5THHL'])
-
-
+SearchOverrides = []
 
 def get_args():
     parser = argparse.ArgumentParser(description='Spotify toolbox')
@@ -153,20 +64,16 @@ def get_args():
     parser.add_argument('--interactive', required=False, action="store_true", help='Prompt for choice if there are duplicates found')
     parser.add_argument('--show-search-details', required=False, action="store_true", help='Show searches and raw results')
     parser.add_argument('--show-tracks', required=False, action="store_true", help='Show tracks when normally only albums would be shown')
-    parser.add_argument('--last-fm', required=False, action="store_true", help='Enable Last.FM integration')
+    parser.add_argument('--show-playlist-membership', required=False, action="store_true", help='Show which playlists tracks belong to')
 
     marketgroup = parser.add_mutually_exclusive_group(required=False)
     marketgroup.add_argument('--no-market', required=False, action="store_true", help='Do not limit searches by user market')
     marketgroup.add_argument('--market', required=False, help='Specify market')
 
+    parser.add_argument('--last-fm', required=False, action="store_true", help='Enable Last.FM integration')
     parser.add_argument('--last-fm-recent-count', type=int, default=-1, required=False, help='How many recent tracks to retrieve from Last.FM')
 
     return parser.parse_args()
-
-def validate_search_overrides():
-    for override in search_overrides:
-        if len (override) != 4:
-            pprint.pprint(override)
 
 def name_matches(left,right):
     left = left.lower()
@@ -183,34 +90,34 @@ def name_matches(left,right):
     #    print("Comparing '%s' with '%s'" % (left, right))
     return left == right
 
-def get_search_exact(sp,args,track_name,artist,album):
-    if args.show_search_details:
+def get_search_exact(track_name,artist,album):
+    if Args.show_search_details:
         print("Searching for (%s;%s;%s)" % (track_name,artist,album))
     market = 'from_token'
-    if args.market:
-        market = args.market
+    if Args.market:
+        market = Args.market
     if track_name == '*':
         search_str = "artist:%s album:%s" % (artist, album)
         try:
-            if args.no_market:
-                results = sp.search(search_str,type='album')
+            if Args.no_market:
+                results = SpotifyAPI.search(search_str,type='album')
             else:
-                results = sp.search(search_str,type='album',market=market)
+                results = SpotifyAPI.search(search_str,type='album',market=market)
         except spotipy.exceptions.SpotifyException:
             return []
-        if args.show_search_details:
+        if Args.show_search_details:
             print("Search '%s' returned %d results" % (search_str, len(results['albums']['items'])))
         return results['albums']['items']
     else:
         search_str = "track:%s artist:%s album:%s" % (track_name, artist, album)
         try:
-            if args.no_market:
-                results = sp.search(search_str,type='track')
+            if Args.no_market:
+                results = SpotifyAPI.search(search_str,type='track')
             else:
-                results = sp.search(search_str,type='track',market=market)
+                results = SpotifyAPI.search(search_str,type='track',market=market)
         except spotipy.exceptions.SpotifyException:
             return []
-        if args.show_search_details:
+        if Args.show_search_details:
             print("Search '%s' returned %d results" % (search_str, len(results['tracks']['items'])))
         return results['tracks']['items']
 
@@ -231,7 +138,7 @@ def remove_brackets(text):
         text = text.partition("(")[0]
     return text
 
-def print_track(sp,args,result,i,album=None):
+def print_track(result,i,album=None):
     track_name = result['name']
     artists = "";
     for artist in result['artists']:
@@ -248,7 +155,7 @@ def print_track(sp,args,result,i,album=None):
     explicit = " "
     if result['explicit']:
         explicit = "Y"
-    playcount = get_playcount_str(sp,args,artists,album_name,track_name,result['uri'])
+    playcount = get_playcount_str(artists,album_name,track_name,result['uri'])
     popularity = -1
     if 'popularity' in  result:
         popularity = result['popularity']
@@ -273,13 +180,13 @@ def print_track(sp,args,result,i,album=None):
                 ))
 
 
-def select_duplicate(sp,args,results,track_name,artist_name,album_name,ask=True):
+def select_duplicate(results,track_name,artist_name,album_name,ask=True):
     print("Results for              %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
     for i in range(len(results)):
         result = results[i]
         if 'track' in result:
             result = result['track']
-            print_track(sp,args,result,i+1)
+            print_track(result,i+1)
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -289,7 +196,7 @@ def select_duplicate(sp,args,results,track_name,artist_name,album_name,ask=True)
             pass
     return []
 
-def print_album(sp,args,count,album,track_count=-1):
+def print_album(count,album,track_count=-1):
     artists = "";
     for artist in album['artists']:
         if len(artists) > 0:
@@ -299,13 +206,13 @@ def print_album(sp,args,count,album,track_count=-1):
     count_source = " "
     if track_count == -1:
         track_count = 0
-        for i,track in enumerate(sp.album_tracks(album['id'])['items']):
-            playcount_str = get_playcount_str(sp,args,artists,album['name'],track['name'],track['uri'])
+        for i,track in enumerate(SpotifyAPI.album_tracks(album['id'])['items']):
+            playcount_str = get_playcount_str(artists,album['name'],track['name'],track['uri'])
             if playcount_str != None and playcount_str != "   ":
                 count_source = playcount_str[:1]
                 track_count = track_count + 1
 
-    print_album_details(sp,args,
+    print_album_details(
         count,
         artists,
         album['name'],
@@ -318,7 +225,7 @@ def print_album(sp,args,count,album,track_count=-1):
         )
 
 
-def print_album_details(sp,args,count,artist,album,type,release_date,total_tracks,track_count,uri,count_source=" "):
+def print_album_details(count,artist,album,type,release_date,total_tracks,track_count,uri,count_source=" "):
     if track_count != None and track_count >= 0:
         print("                 %02d:    %24.24s; %48.48s; %12.12s %04.04s %1.1s%02d/%02d %s" % (
                 count,
@@ -342,11 +249,11 @@ def print_album_details(sp,args,count,artist,album,type,release_date,total_track
                 uri
                 ))
 
-def select_duplicate_album(sp,args,results,artist_name,album_name,ask=True):
+def select_duplicate_album(results,artist_name,album_name,ask=True):
     print("Results for          %24.24s; %48.48s" % (artist_name, album_name))
     for i in range(len(results)):
         album = results[i]
-        print_album(sp,args,i+1,album)
+        print_album(i+1,album)
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -356,7 +263,7 @@ def select_duplicate_album(sp,args,results,artist_name,album_name,ask=True):
             pass
     return []
 
-def select_duplicate_artist(sp,args,results,artist_name,ask=True):
+def select_duplicate_artist(results,artist_name,ask=True):
     print("Results for          %24.24s" % (artist_name))
     for i in range(len(results)):
         artist = results[i]
@@ -375,41 +282,41 @@ def select_duplicate_artist(sp,args,results,artist_name,ask=True):
             pass
     return []
 
-def process_tracks(sp,args,tracks):
+def process_tracks(tracks):
     show_tracks = []
     for entry in tracks:
         context = None
         if 'context' in entry:
             context = entry['context']
-        show = args.list
-        if args.playlist:
+        show = Args.list
+        if Args.playlist:
             if not context or context['type'] != 'playlist':
                 show = False
             else:
-                playlist = sp.playlist(context['uri'])
-                if args.playlist != playlist['name']:
+                playlist = SpotifyAPI.playlist(context['uri'])
+                if Args.playlist != playlist['name']:
                     show = False
                 else:
-                    if args.delete:
+                    if Args.delete:
                         tracks_to_remove = []
                         tracks_to_remove.append(entry['track']['id'])
-                        if args.dryrun:
+                        if Args.dryrun:
                             print("Would remove tracks:")
                             pprint.pprint(tracks_to_remove)
                         else:
-                            sp.user_playlist_remove_all_occurrences_of_tracks(sp.me()['id'],playlist['id'],tracks_to_remove)
+                            SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(SpotifyAPI.me()['id'],playlist['id'],tracks_to_remove)
         if show:
             show_tracks.append(entry)
-    if args.list and len(show_tracks) > 0:
-        select_duplicate(sp,args,show_tracks,'','','',False)
+    if Args.list and len(show_tracks) > 0:
+        select_duplicate(show_tracks,'','','',False)
 
 
-def process_first_albums(sp,args,playlists):
+def process_first_albums(playlists):
     for playlist in playlists:
-        if args.playlist == playlist['name']:
+        if Args.playlist == playlist['name']:
             if playlist['tracks']['total'] > 0:
                 new_album_count = 1
-                tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
+                tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
                 firsttrack = tracks['items'][0]['track']
                 album = firsttrack['album']
                 first_album_tracks = []
@@ -418,55 +325,55 @@ def process_first_albums(sp,args,playlists):
                         if track['track']['album'] == album:
                             first_album_tracks.append(track)
                         else:
-                            if not args.show_tracks:
-                                print_album(sp,args,new_album_count,album,len(first_album_tracks))
+                            if not Args.show_tracks:
+                                print_album(new_album_count,album,len(first_album_tracks))
                             new_album_count = new_album_count + 1
 
-                            if args.delete:
+                            if Args.delete:
                                 tracks_to_remove = []
                                 for remove_track in first_album_tracks:
                                     tracks_to_remove.append(remove_track['track']['id'])
-                                    if args.dryrun:
-                                        print_track(sp,args,remove_track['track'],len(tracks_to_remove))
-                                if args.dryrun:
+                                    if Args.dryrun:
+                                        print_track(remove_track['track'],len(tracks_to_remove))
+                                if Args.dryrun:
                                      None
                                 else:
-                                    sp.user_playlist_remove_all_occurrences_of_tracks(sp.me()['id'],playlist['id'],tracks_to_remove)
-#                            elif args.list:
-#                                select_duplicate(sp,args,first_album_tracks,'','','',False)
+                                    SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(SpotifyAPI.me()['id'],playlist['id'],tracks_to_remove)
+#                            elif Args.list:
+#                                select_duplicate(first_album_tracks,'','','',False)
 
-                            if new_album_count > args.first_albums:
+                            if new_album_count > Args.first_albums:
                                 break;
                             album = track['track']['album']
-                            if not args.show_tracks:
+                            if not Args.show_tracks:
                                 first_album_tracks = []
                             first_album_tracks.append(track)
 
-                    if new_album_count > args.first_albums:
+                    if new_album_count > Args.first_albums:
                         break;
                     elif tracks['next']:
-                        tracks = sp.next(tracks)
+                        tracks = SpotifyAPI.next(tracks)
                     else:
                         break;
-                if args.show_tracks:
+                if Args.show_tracks:
                     for i,track in enumerate(first_album_tracks):
-                        print_track(sp,args,track['track'],i+1)
+                        print_track(track['track'],i+1)
 
-def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_choice):
+def get_results_for_track(track_name,artist,album,show_list,prompt_for_choice):
     search_str = "track:%s artist:%s album:%s" % (track_name, artist, album)
 
-    results = get_search_exact(sp,args,track_name,artist,album)
+    results = get_search_exact(track_name,artist,album)
     result_count = len(results)
 
     # If not found, try various changes
     if result_count == 0:
-        results_artist_punctuation = get_search_exact(sp,args,track_name,remove_punctuation(artist),album)
+        results_artist_punctuation = get_search_exact(track_name,remove_punctuation(artist),album)
         results.extend(results_artist_punctuation)
 
-        results_track_featuring = get_search_exact(sp,args,remove_featuring(track_name),artist,album)
+        results_track_featuring = get_search_exact(remove_featuring(track_name),artist,album)
         results.extend(results_track_featuring)
 
-        results_all_brackets = get_search_exact(sp,args,remove_brackets(track_name),remove_brackets(artist),remove_brackets(album))
+        results_all_brackets = get_search_exact(remove_brackets(track_name),remove_brackets(artist),remove_brackets(album))
         results.extend(results_all_brackets)
 
         result_count = len(results)
@@ -525,7 +432,7 @@ def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_c
 
     # If there is still a duplicate, prompt for a choice
     if show_list or (result_count > 1 and prompt_for_choice):
-        results = select_duplicate(sp,args,results,track_name,artist,album,prompt_for_choice)
+        results = select_duplicate(results,track_name,artist,album,prompt_for_choice)
         result_count = len(results)
 
     # If there is still a duplicate, pick the most popular, or the first in the list with the same popularity
@@ -543,21 +450,38 @@ def get_results_for_track(sp,args,track_name,artist,album,show_list,prompt_for_c
 
     return results
 
-def get_results_for_album(sp,args,artist,album,show_list,prompt_for_choice):
+def get_results_for_album(artist,album,show_list,prompt_for_choice):
     # returns a list with an extra level of indirection,
     # so one list per album, not per track
 
-    results = get_search_exact(sp,args,'*',artist,album)
+    results = get_results_from_override_album(artist,album)
+    if results == None: # override to skipped
+        return []
+    elif len(results) > 0 and len(results[0]) > 0 and len(results[0][1]) > 0:
+        if show_list:
+            for ai,albumdata in enumerate(results):
+                albumuri = albumdata[0]
+                tracks = albumdata[1]
+                if Args.show_tracks:
+                    for i,trackuri in enumerate(tracks):
+                        track = SpotifyAPI.track(trackuri)
+                        print_track(track,i+1)
+                else:
+                    album = SpotifyAPI.album(albumuri)
+                    print_album(ai+1,album)
+        return results
+
+    results = get_search_exact('*',artist,album)
     result_count = len(results)
 
     # If not found, try various changes
     if result_count == 0:
         if remove_punctuation(artist) != artist:
-            results_artist_punctuation = get_search_exact(sp,args,'*',remove_punctuation(artist),album)
+            results_artist_punctuation = get_search_exact('*',remove_punctuation(artist),album)
             results.extend(results_artist_punctuation)
 
         if remove_brackets(artist) != artist or remove_brackets(album) != album:
-            results_all_brackets = get_search_exact(sp,args,'*',remove_brackets(artist),remove_brackets(album))
+            results_all_brackets = get_search_exact('*',remove_brackets(artist),remove_brackets(album))
             results.extend(results_all_brackets)
 
         result_count = len(results)
@@ -619,7 +543,7 @@ def get_results_for_album(sp,args,artist,album,show_list,prompt_for_choice):
 
     # If there is still a duplicate, prompt for a choice, or pick first
     if result_count > 1 and prompt_for_choice:
-        results = select_duplicate_album(sp,args,results,artist,album,prompt_for_choice)
+        results = select_duplicate_album(results,artist,album,prompt_for_choice)
         result_count = len(results)
 
 
@@ -628,35 +552,43 @@ def get_results_for_album(sp,args,artist,album,show_list,prompt_for_choice):
         result_count = len(results)
 
     if show_list and result_count:
-        if args.show_tracks:
-            for i,track in enumerate(sp.album_tracks(results[0]['id'])['items']):
-                print_track(sp,args,track,i+1,results[0])
+        if Args.show_tracks:
+            for i,track in enumerate(SpotifyAPI.album_tracks(results[0]['id'])['items']):
+                print_track(track,i+1,results[0])
         else:
-            print_album(sp,args,1,results[0])
+            print_album(1,results[0])
 
     track_results = []
     for album_result in results:
         tids = []
-        tracks = sp.album_tracks(album_result['id'])
+        tracks = SpotifyAPI.album_tracks(album_result['id'])
         for track in tracks['items']:
             tids.append(track['id'])
         while tracks['next']:
-            tracks = sp.next(tracks)
+            tracks = SpotifyAPI.next(tracks)
             for track in tracks['items']:
                 tids.append(track['id'])
         track_results.append(tids)
     return [track_results]
 
-def get_results_from_override_album(sp,args,artist,album):
+# Returns list of albums, each with their tracks
+#   [ [album_uri_1,[track_uri_1_1, track_uri_1_2,...]],
+#     [album_uri_2,[track_uri_2_1, track_uri_2_2,...]] ]
+def get_results_from_override_album(artist,album):
     uri = None
     found = False
-    for entry in search_overrides:
+    for entry in SearchOverrides:
 #        if entry[0] == '*' and entry[1] == artist:
 #            print("Found matching artist %s. Attempting to match '%s' and '%s'" % (artist, album, entry[2]))
         if entry[0] == '*' and entry[1] == artist and entry[2] == album:
             found = True
             uri_or_uris = entry[3]
             break
+
+#    if found:
+#        print(f"Override for {artist},{album} found. Result = {uri_or_uris}")
+#    else:
+#        print(f"Override for {artist},{album} not found.")
 
     # no ovverride
     if not found:
@@ -670,28 +602,28 @@ def get_results_from_override_album(sp,args,artist,album):
         uris = [uri_or_uris]
 
     track_results = []
-    tids = []
     try:
         for uri in uris:
-            tracks = sp.album_tracks(uri)
+            tracks = SpotifyAPI.album_tracks(uri)
+            tids = []
             for track in tracks['items']:
                 tids.append(track['id'])
             while tracks['next']:
-                tracks = sp.next(tracks)
+                tracks = SpotifyAPI.next(tracks)
                 for track in tracks['items']:
                     tids.append(track['id'])
-        track_results.append(tids)
+            track_results.append([uri,tids])
     except spotipy.exceptions.SpotifyException:
         pass
-    return [track_results]
+    return track_results
 
-def get_results_from_override(sp,args,track_name,artist,album):
+def get_results_from_override(track_name,artist,album):
     if track_name == '*':
-        return get_results_from_override_album(sp,args,artist,album)
+        return get_results_from_override_album(artist,album)
     else:
         return []
 
-def find_album(sp,args,artist,album):
+def find_album(artist,album):
     # GPM and Spotify handle multiple artists differently
     if "&" in artist:
         artist = artist.replace("&"," ")
@@ -700,7 +632,7 @@ def find_album(sp,args,artist,album):
         album = album.replace("'"," ")
 
     search_str = "album:%s artist:%s" % (album, artist)
-    results=sp.search(search_str,type='album',market='from_token')
+    results=SpotifyAPI.search(search_str,type='album',market='from_token')
     results_base = results['albums']['items']
     result_count = len(results_base)
 
@@ -734,19 +666,19 @@ def find_album(sp,args,artist,album):
     elif result_count == 0:
         print("Not found")
         return None
-    elif args.add or args.show_search_details or args.interactive:
-        return select_duplicate_album(sp,args,results_base,artist,album,args.interactive)
+    elif Args.add or Args.show_search_details or Args.interactive:
+        return select_duplicate_album(results_base,artist,album,Args.interactive)
     else:
         print("Duplicates found")
         return None
 
-def find_artist(sp,args,artist,prompt_unique):
+def find_artist(artist,prompt_unique):
     # GPM and Spotify handle multiple artists differently
     if "&" in artist:
         artist = artist.replace("&"," ")
 
     search_str = "artist:%s" % (artist)
-    results=sp.search(search_str,type='artist',market='from_token')
+    results=SpotifyAPI.search(search_str,type='artist',market='from_token')
     results_base = results['artists']['items']
     result_count = len(results_base)
 
@@ -760,10 +692,10 @@ def find_artist(sp,args,artist,prompt_unique):
             results_base = new_base
             result_count = len(results_base)
 
-    show = args.add or args.show_search_details
+    show = Args.add or Args.show_search_details
     prompt = result_count > 1 and prompt_unique
     if show or prompt:
-        results_base = select_duplicate_artist(sp,args,results_base,artist,prompt)
+        results_base = select_duplicate_artist(results_base,artist,prompt)
         result_count = len(results_base)
     
 #    if show_details:
@@ -779,75 +711,75 @@ def find_artist(sp,args,artist,prompt_unique):
         print("Duplicates found")
         return None
 
-def process_playlists_add_album(sp,args,playlists,album):
-    tracks = sp.album_tracks(album['id'])
+def process_playlists_add_album(playlists,album):
+    tracks = SpotifyAPI.album_tracks(album['id'])
     track_ids = []
     for track in tracks['items']:
         track_ids.append(track['id'])
     while tracks['next']:
-        tracks = sp.next(tracks)
+        tracks = SpotifyAPI.next(tracks)
         for track in tracks['items']:
             track_ids.append(track['id'])
     for playlist in playlists:
-        if args.playlist == playlist['name']:
-            if args.dryrun:
+        if Args.playlist == playlist['name']:
+            if Args.dryrun:
                 print("Would add tracks:")
                 pprint.pprint(track_ids)
             else:
-                sp.user_playlist_add_tracks(sp.me()['id'],playlist['id'],track_ids)
+                SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
 
-def open_dataset_csv(args):
-    csv_file = open( args.file )
+def open_dataset_csv():
+    csv_file = open( Args.file )
     csv_reader = csv.reader(csv_file,delimiter=',')
     return csv_reader
 
-def open_dataset_html(args):
-    page = requests.get(args.url)
+def open_dataset_html():
+    page = requests.get(Args.url)
     tree = html.fromstring(page.content)
     return tree
 
-def open_dataset(args):
-    if args.file:
-        return open_dataset_csv(args)
-    elif args.url:
-        return open_dataset_html(args)
+def open_dataset():
+    if Args.file:
+        return open_dataset_csv()
+    elif Args.url:
+        return open_dataset_html()
     else:
         return None
 
-def get_playlist_name_csv(data,args):
-    playlist_name = args.file
+def get_playlist_name_csv(data):
+    playlist_name = Args.file
     if playlist_name[-4] == '.csv':
         playlist_name = playlist_name[0:-4]
     playlist_name = 'GPM: ' + playlist_name
     return playlist_name
 
-def get_playlist_name_html_metalstorm_top(data,args):
+def get_playlist_name_html_metalstorm_top(data):
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
 
-def get_playlist_name_html_metalstorm_list(data,args): 
+def get_playlist_name_html_metalstorm_list(data):
     user = data.xpath('//*[@id="page-content"]/table/tr/td[2]/div[1]/table/tr/td[2]/a/text()')[0].strip()
     date = data.xpath('//*[@id="page-content"]/table/tr/td[2]/div[1]/table/tr/td[2]/span/text()')[0].strip()[2:]
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + user + ": " + title + ' (' + date + ')'
 
-def get_playlist_name_html_metalstorm_releases(data,args):
+def get_playlist_name_html_metalstorm_releases(data):
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
 
-def get_playlist_name(data,args):
-    if args.file:
-        return get_playlist_name_csv(data,args)
-    elif args.metalstorm_top:
-        return get_playlist_name_html_metalstorm_top(data,args)
-    elif args.metalstorm_list:
-        return get_playlist_name_html_metalstorm_list(data,args)
-    elif args.metalstorm_releases:
-        return get_playlist_name_html_metalstorm_releases(data,args)
+def get_playlist_name(data):
+    if Args.file:
+        return get_playlist_name_csv(data)
+    elif Args.metalstorm_top:
+        return get_playlist_name_html_metalstorm_top(data)
+    elif Args.metalstorm_list:
+        return get_playlist_name_html_metalstorm_list(data)
+    elif Args.metalstorm_releases:
+        return get_playlist_name_html_metalstorm_releases(data)
     else:
         return None
 
-def get_tracks_to_import_csv(data,args):
+def get_tracks_to_import_csv(data):
     tracks = []
     for row in data:
         if len(row) < 3:
@@ -859,7 +791,7 @@ def get_tracks_to_import_csv(data,args):
         tracks.append(track)
     return tracks
 
-def get_tracks_to_import_html_metalstorm_top(data,args):
+def get_tracks_to_import_html_metalstorm_top(data):
     artists = data.xpath('//*[@id="page-content"]/div[@class="cbox"]/table[@class="table table-compact table-striped"]/tr/td/b/a/text()')
     albums = data.xpath('//*[@id="page-content"]/div[@class="cbox"]/table[@class="table table-compact table-striped"]/tr/td/a/text()')
     if len(artists) != len(albums):
@@ -873,7 +805,7 @@ def get_tracks_to_import_html_metalstorm_top(data,args):
         tracks.append(track)
     return tracks
 
-def get_tracks_to_import_html_metalstorm_list(data,args):
+def get_tracks_to_import_html_metalstorm_list(data):
     lines = data.xpath('//*[@id="page-content"]/table/tr/td/div/table/tr')
 
     tracks = []
@@ -892,7 +824,7 @@ def get_tracks_to_import_html_metalstorm_list(data,args):
 
     return tracks
 
-def get_tracks_to_import_html_metalstorm_releases(data,args):
+def get_tracks_to_import_html_metalstorm_releases(data):
     lines = data.xpath('//*[@id="page-content"]/div/div/table/tr/td/a')
 
     tracks = []
@@ -912,45 +844,45 @@ def get_tracks_to_import_html_metalstorm_releases(data,args):
 
     return tracks
 
-def get_tracks_to_import(data,args):
-    if args.file:
-        return get_tracks_to_import_csv(data,args)
-    elif args.metalstorm_top:
-        return get_tracks_to_import_html_metalstorm_top(data,args)
-    elif args.metalstorm_list:
-        return get_tracks_to_import_html_metalstorm_list(data,args)
-    elif args.metalstorm_releases:
-        return get_tracks_to_import_html_metalstorm_releases(data,args)
+def get_tracks_to_import(data):
+    if Args.file:
+        return get_tracks_to_import_csv(data)
+    elif Args.metalstorm_top:
+        return get_tracks_to_import_html_metalstorm_top(data)
+    elif Args.metalstorm_list:
+        return get_tracks_to_import_html_metalstorm_list(data)
+    elif Args.metalstorm_releases:
+        return get_tracks_to_import_html_metalstorm_releases(data)
     else:
         return None
 
-def get_playlist_comments_html(data,args):
-    comments = "Imported from " + args.url + " on "+ datetime.date.today().strftime("%Y-%m-%d")
+def get_playlist_comments_html(data):
+    comments = "Imported from " + Args.url + " on "+ datetime.date.today().strftime("%Y-%m-%d")
     return comments
 
-def get_playlist_comments(data,args):
-    if args.url:
-        return get_playlist_comments_html(data,args)
+def get_playlist_comments(data):
+    if Args.url:
+        return get_playlist_comments_html(data)
     else:
         return ""
 
-def create_playlist(sp,args):
+def create_playlist():
     found = 0
     notfound = 0
     duplicate = 0
     notfound_list = []
     duplicate_list = []
 
-    data = open_dataset(args)
-    playlist_name = get_playlist_name(data,args)
-    tracks_to_import = get_tracks_to_import(data,args)
-    playlist_comments = get_playlist_comments(data,args)
+    data = open_dataset()
+    playlist_name = get_playlist_name(data)
+    tracks_to_import = get_tracks_to_import(data)
+    playlist_comments = get_playlist_comments(data)
     playlist_comments_extra = ""
 
-    user = sp.me()['id']
+    user = SpotifyAPI.me()['id']
 
-    if not args.dryrun:
-        playlist = sp.user_playlist_create( user, playlist_name, public=False )
+    if not Args.dryrun:
+        playlist = SpotifyAPI.user_playlist_create( user, playlist_name, public=False )
         playlist_id = playlist['id']
 
     for row in tracks_to_import:
@@ -965,11 +897,24 @@ def create_playlist(sp,args):
         artist_orig = artist
         album_orig = album
 
-        results = get_results_from_override(sp,args,track_name,artist,album)
-        if results == None:
+        results = [[]]
+        override_results = get_results_from_override(track_name,artist,album)
+#        used_override = False
+        if override_results == None:
             # overriden to skipped
             print("Search for (%s;%s;%s) skipped by override" % (track_name, artist, album))
             continue
+        elif len(override_results) > 0 and len(override_results[0]) > 0 and len(override_results[0][1]) > 0:
+            results = []
+            for ai,albumdata in enumerate(override_results):
+                albumuri = albumdata[0]
+                tracks = albumdata[1]
+                for i,trackuri in enumerate(tracks):
+#                    track = SpotifyAPI.track(trackuri)
+                    results.append(trackuri)
+            results = [[results]]
+#            pprint.pprint(results)
+#            used_override = True
 
         result_count = len(results)
         actual_count = result_count
@@ -977,7 +922,7 @@ def create_playlist(sp,args):
             actual_count = len(results[0])
 
         if actual_count > 0:
-            print("Search for (%s;%s;%s) overridden" % (track_name, artist, album))
+            print("Search for (%s;%s;%s) overridden with %d tracks" % (track_name, artist, album, len(results[0][0])))
 
         if actual_count == 0:
             # GPM and Spotify handle multiple artists differently
@@ -994,9 +939,9 @@ def create_playlist(sp,args):
     #        print("Searching for (%s;%s;%s)" % (track_name,artist,album))
 
             if track_name == '*':
-                results = get_results_for_album(sp,args,artist,album,False,args.interactive)
+                results = get_results_for_album(artist,album,False,Args.interactive)
             else:
-                results = get_results_for_track(sp,args,track_name,artist,album,False,args.interactive)
+                results = get_results_for_track(track_name,artist,album,False,Args.interactive)
 
         result_count = len(results)
         actual_count = result_count
@@ -1014,7 +959,7 @@ def create_playlist(sp,args):
                     playlist_comments_extra = playlist_comments_extra + "%s by %s" % (album_orig, artist_orig)
                 else:
                     playlist_comments_extra = playlist_comments_extra + "%s from %s by %s" % (track_name_orig,album_orig,artist_orig)
-                if args.interactive:
+                if Args.interactive:
                     input("Press any key to continue")
             else:
                 results = [results[0]]
@@ -1029,15 +974,18 @@ def create_playlist(sp,args):
                 results = results[0]
                 for tids_for_album in results:
 #                    print("(*;%s;%s) - added %02d tracks" % (artist, album, len(tids_for_album)))
-                    if not args.dryrun:
-                        sp.user_playlist_add_tracks( user, playlist_id, tids_for_album )
+                    if not Args.dryrun:
+#                        print(f"Adding '{tids_for_album}'")
+                        SpotifyAPI.user_playlist_add_tracks( user, playlist_id, tids_for_album )
                         time.sleep(0.1)
+#                    elif used_override:
+#                        print(f"Would have added '{tids_for_album}'")
             else:
                 for track in results:
                     tids.append(track['id'])
 #                print("(%s;%s;%s) - added %02d tracks" % (track_name, artist, album, len(tids)))
-                if not args.dryrun:
-                    sp.user_playlist_add_tracks( user, playlist_id, tids )
+                if not Args.dryrun:
+                    SpotifyAPI.user_playlist_add_tracks( user, playlist_id, tids )
 
         time.sleep(0.1)
 
@@ -1045,8 +993,8 @@ def create_playlist(sp,args):
         if playlist_comments_extra != "":
             playlist_comments = playlist_comments + ". Not found (%d) %s" % (notfound, playlist_comments_extra)
         print("Setting description to " + playlist_comments)
-        if not args.dryrun:
-            sp.user_playlist_change_details(user,playlist_id,description=playlist_comments[0:300])
+        if not Args.dryrun:
+            SpotifyAPI.user_playlist_change_details(user,playlist_id,description=playlist_comments[0:300])
 
     print("%d found, %d not found, %d chosen on popularity" % (found, notfound, duplicate))
 
@@ -1061,27 +1009,27 @@ def create_playlist(sp,args):
             print(item)
 
 
-def query_recent(sp,args):
-    if args.last_fm:
-        query_recent_lastfm(sp,args)
+def query_recent():
+    if Args.last_fm:
+        query_recent_lastfm()
     else:
-        query_recent_spotify(sp,args)
+        query_recent_spotify()
 
-def query_recent_lastfm(sp,args):
+def query_recent_lastfm():
 #            printable = f"{track.playback_date}\t{track.track}"
 #            print(str(i + 1) + " " + printable)
 #            pprint.pprint(track)
     print(f"Cached {len(LastFMRecentTrackCache)} unique tracks.")
 #    pprint.pprint(LastFMRecentTrackCache)
 
-def init_last_fm_recent_cache(sp,args):
+def init_last_fm_recent_cache():
     global LastFMRecentTrackCache
     LastFMRecentTrackCache = {}
     orig_timestamp = None
-    if args.last_fm_recent_count > 0:
-        recent_tracks = LastFMUser.get_recent_tracks(limit=args.last_fm_recent_count)
+    if Args.last_fm_recent_count > 0:
+        recent_tracks = LastFMUser.get_recent_tracks(limit=Args.last_fm_recent_count)
     else:
-        orig_timestamp = init_last_fm_recent_cache_from_file(sp,args)
+        orig_timestamp = init_last_fm_recent_cache_from_file()
         recent_tracks = LastFMUser.get_recent_tracks(limit=None,time_from=orig_timestamp)
     print(f"Retrieved {len(recent_tracks)} from Last.FM")
     latest_timestamp = None
@@ -1104,11 +1052,11 @@ def init_last_fm_recent_cache(sp,args):
                 LastFMRecentTrackCache[entry] = 1
     if latest_timestamp == None:
         latest_timestamp = orig_timestamp
-    if args.last_fm_recent_count < 0:
+    if Args.last_fm_recent_count < 0:
 #        print(f"New timestamp is {latest_timestamp}")
-        init_last_fm_recent_cache_to_file(sp,args,latest_timestamp)
+        init_last_fm_recent_cache_to_file(latest_timestamp)
 
-def init_last_fm_recent_cache_from_file(sp,args):
+def init_last_fm_recent_cache_from_file():
     last_timestamp = None
     try:
         with open('lastfm_cache.txt','r') as cachefile:
@@ -1131,7 +1079,7 @@ def init_last_fm_recent_cache_from_file(sp,args):
         last_timestamp = (int)(last_timestamp) + 1
     return last_timestamp
 
-def init_last_fm_recent_cache_to_file(sp,args,timestamp):
+def init_last_fm_recent_cache_to_file(timestamp):
     copyfile('lastfm_cache.txt','lastfm_cache.bak')
     try:
         with open('lastfm_cache.txt','w') as cachefile:
@@ -1147,10 +1095,10 @@ def init_last_fm_recent_cache_to_file(sp,args,timestamp):
 
     return None
 
-def init_spotify_recent_cache(sp,args):
+def init_spotify_recent_cache():
     global SpotifyRecentTrackCache
     SpotifyRecentTrackCache = {}
-    tracks = sp.current_user_recently_played()
+    tracks = SpotifyAPI.current_user_recently_played()
     for track in tracks['items']:
         uri = track['track']['uri']
         if uri in SpotifyRecentTrackCache:
@@ -1159,11 +1107,11 @@ def init_spotify_recent_cache(sp,args):
             SpotifyRecentTrackCache[uri] = 1
 
 
-def query_recent_spotify(sp,args):
+def query_recent_spotify():
     print(f"Cached {len(SpotifyRecentTrackCache)} unique tracks.")
 #    pprint.pprint(SpotifyRecentTrackCache)
 
-def get_playcount_str(sp,args,artist,album,track,uri):
+def get_playcount_str(artist,album,track,uri):
     playcount = "   "
     if LastFMRecentTrackCache != None:
 #        pprint.pprint(LastFMRecentTrackCache)
@@ -1187,10 +1135,33 @@ def get_playcount_str(sp,args,artist,album,track,uri):
             playcount = "S%2.0d" % (SpotifyRecentTrackCache[entry])
     return playcount
 
-def main():
-    args = get_args()
+def init_search_overrides():
+    try:
+        with open('overrides.txt','r') as overridesfile:
+            for line in overridesfile:
+                line = line.strip()
+                data = line.split(';; ')
+                if len(data) >= 4:
+                    track = data[0]
+                    artist = data[1]
+                    album = data[2]
+                    uris = []
+                    for i in range(3,len(data)):
+                        if data[i] == "!None":
+                            uris = None
+                            break
+                        else:
+                            uris.append(data[i])
+                    SearchOverrides.append([track,artist,album,uris])
+    except FileNotFoundError:
+        return None
+    print(f"Read {len(SearchOverrides)} overrides from file")
 
-    validate_search_overrides()
+
+def main():
+    global Args
+    global SpotifyAPI
+    Args = get_args()
 
     client_id = 'your-client-id'
     client_secret = 'your-client-secret'
@@ -1209,144 +1180,146 @@ def main():
         last_fm_client_secret = credfile.readline().strip()
         last_fm_username = credfile.readline().strip()
 
-    sp = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
-#    sp.trace = True
-    sp.trace = False
+    SpotifyAPI = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
+#    SpotifyAPI.trace = True
+    SpotifyAPI.trace = False
 
-    user_id = sp.me()['id']
-    init_spotify_recent_cache(sp,args)
+    user_id = SpotifyAPI.me()['id']
+    init_spotify_recent_cache()
 
-    if args.last_fm and last_fm_client_id != "" and last_fm_client_secret != "" and last_fm_username != "":
+    if Args.last_fm and last_fm_client_id != "" and last_fm_client_secret != "" and last_fm_username != "":
         global LastFM
         LastFM = pylast.LastFMNetwork(api_key=last_fm_client_id, api_secret=last_fm_client_secret, username=last_fm_username)
         global LastFMUser
         LastFMUser = LastFM.get_user(last_fm_username)
-        init_last_fm_recent_cache(sp,args)
+        init_last_fm_recent_cache()
 
-    if args.create:
-        create_playlist(sp,args)
-    elif args.set_description:
+    init_search_overrides()
+
+    if Args.create:
+        create_playlist()
+    elif Args.set_description:
         print("Setting playlist description")
-        if args.playlist:
-            playlists = sp.user_playlists(user_id)
+        if Args.playlist:
+            playlists = SpotifyAPI.user_playlists(user_id)
             for playlist in playlists['items']:
-                if playlist['name'] == args.playlist:
-                    sp.user_playlist_change_details(user_id,playlist['id'],description=args.set_description)
+                if playlist['name'] == Args.playlist:
+                    SpotifyAPI.user_playlist_change_details(user_id,playlist['id'],description=Args.set_description)
             while playlists['next']:
-                playlists = sp.next(playlists)
+                playlists = SpotifyAPI.next(playlists)
                 for playlist in playlists['items']:
-                    if playlist['name'] == args.playlist:
-                        sp.user_playlist_change_details(user_id,playlist['id'],description=args.set_description)
-    elif args.find:
-        if args.artist and args.album:
-            if args.track_name:
+                    if playlist['name'] == Args.playlist:
+                        SpotifyAPI.user_playlist_change_details(user_id,playlist['id'],description=Args.set_description)
+    elif Args.find:
+        if Args.artist and Args.album:
+            if Args.track_name:
                 print("Find track")
-                album = get_results_for_track(sp,args,args.track_name,args.artist,args.album,True,False)
+                album = get_results_for_track(Args.track_name,Args.artist,Args.album,True,False)
             else:
                 print("Find album")
-                album = get_results_for_album(sp,args,args.artist,args.album,True,False)
-    elif args.add:
-        if args.playlist and args.artist and args.album:
-            if args.track_name:
+                album = get_results_for_album(Args.artist,Args.album,True,False)
+    elif Args.add:
+        if Args.playlist and Args.artist and Args.album:
+            if Args.track_name:
                 print("Add track (Not implemented)")
-#                track = find_track(sp,args.track_name,args.artist,args.album)
+#                track = find_track(.track_name,Args.artist,Args.album)
 #                if track:
-#                    playlists = sp.user_playlists(user_id)
+#                    playlists = SpotifyAPI.user_playlists(user_id)
 #                    process_playlists_add_track(playlists['items'],sp,args,track)
 #                    while playlists['next']:
-#                        playlists = sp.next(playlists)
+#                        playlists = SpotifyAPI.next(playlists)
 #                        process_playlists_add_track(playlists['items'],sp,args,track)
             else:
                 print("Add album")
-                album = find_album(sp,args,args.artist,args.album)
+                album = find_album(Args.artist,Args.album)
                 if album:
-                    playlists = sp.user_playlists(user_id)
-                    process_playlists_add_album(sp,args,playlists['items'],album)
+                    playlists = SpotifyAPI.user_playlists(user_id)
+                    process_playlists_add_album(playlists['items'],album)
                     while playlists['next']:
-                        playlists = sp.next(playlists)
-                        process_playlists_add_album(sp,args,playlists['items'],album)
-    elif args.delete:
-        if args.playlist:
-            if args.first_albums:
+                        playlists = SpotifyAPI.next(playlists)
+                        process_playlists_add_album(playlists['items'],album)
+    elif Args.delete:
+        if Args.playlist:
+            if Args.first_albums:
                 print("Deleting initial albums from playlist")
-                playlists = sp.user_playlists(user_id)
-                process_first_albums(sp,args,playlists['items'])
+                playlists = SpotifyAPI.user_playlists(user_id)
+                process_first_albums(playlists['items'])
 #                while playlists['next']:
-#                    playlists = sp.next(playlists)
+#                    playlists = SpotifyAPI.next(playlists)
 #                    process_first_albums(playlists['items'],sp,args)
-            elif args.recent:
-                tracks = sp.current_user_recently_played()
-                process_tracks(sp,args,tracks['items'])
+            elif Args.recent:
+                tracks = SpotifyAPI.current_user_recently_played()
+                process_tracks(tracks['items'])
                 while tracks['next']:
-                    tracks = sp.next(tracks)
-                    process_tracks(sp,args,tracks['items'])
-            elif args.all:
-                playlists = sp.user_playlists(user_id)
+                    tracks = SpotifyAPI.next(tracks)
+                    process_tracks(tracks['items'])
+            elif Args.all:
+                playlists = SpotifyAPI.user_playlists(user_id)
                 for playlist in playlists['items']:
-                    if playlist['name'] == args.playlist:
-                        if args.dryrun:
+                    if playlist['name'] == Args.playlist:
+                        if Args.dryrun:
                             print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
                         else:
-                            sp.user_playlist_unfollow(user_id,playlist['id'])
+                            SpotifyAPI.user_playlist_unfollow(user_id,playlist['id'])
                 while playlists['next']:
-                    playlists = sp.next(playlists)
+                    playlists = SpotifyAPI.next(playlists)
                     for playlist in playlists['items']:
-                        if playlist['name'] == args.playlist:
-                            if args.dryrun:
+                        if playlist['name'] == Args.playlist:
+                            if Args.dryrun:
                                 print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
                             else:
-                                sp.user_playlist_unfollow(user_id,playlist['id'])
-    elif args.list:
-            if args.first_albums:
-                playlists = sp.user_playlists(user_id)
-                process_first_albums(sp,args,playlists['items'])
+                                SpotifyAPI.user_playlist_unfollow(user_id,playlist['id'])
+    elif Args.list:
+            if Args.first_albums:
+                playlists = SpotifyAPI.user_playlists(user_id)
+                process_first_albums(playlists['items'])
 #                while playlists['next']:
-#                    playlists = sp.next(playlists)
+#                    playlists = SpotifyAPI.next(playlists)
 #                    process_first_albums(playlists['items'],sp,args)
-            elif args.recent:
-                tracks = sp.current_user_recently_played()
-                process_tracks(sp,args,tracks['items'])
+            elif Args.recent:
+                tracks = SpotifyAPI.current_user_recently_played()
+                process_tracks(tracks['items'])
                 while tracks['next']:
-                    tracks = sp.next(tracks)
-                    process_tracks(sp,args,tracks['items'])
-            elif args.all:
-                playlists = sp.user_playlists(user_id)
+                    tracks = SpotifyAPI.next(tracks)
+                    process_tracks(tracks['items'])
+            elif Args.all:
+                playlists = SpotifyAPI.user_playlists(user_id)
                 for playlist in playlists['items']:
-                    if playlist['name'] == args.playlist:
-                        tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
-                        select_duplicate(sp,args,tracks['items'],'','','',False)
+                    if playlist['name'] == Args.playlist:
+                        tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+                        select_duplicate(tracks['items'],'','','',False)
                         while tracks['next']:
-                            tracks = sp.next(tracks)
-                            select_duplicate(sp,args,tracks['items'],'','','',False)
+                            tracks = SpotifyAPI.next(tracks)
+                            select_duplicate(tracks['items'],'','','',False)
                 while playlists['next']:
-                    playlists = sp.next(playlists)
+                    playlists = SpotifyAPI.next(playlists)
                     for playlist in playlists['items']:
-                        if playlist['name'] == args.playlist:
-                            tracks = sp.user_playlist_tracks(sp.me()['id'],playlist['id'],limit=50)
-                            select_duplicate(sp,args,tracks['items'],'','','',False)
+                        if playlist['name'] == Args.playlist:
+                            tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+                            select_duplicate(tracks['items'],'','','',False)
                             while tracks['next']:
-                                tracks = sp.next(tracks)
-                                select_duplicate(sp,args,tracks['items'],'','','',False)
-            elif args.recommendations:
-                if args.artist:
-                    if args.album:
-                        if args.track_name:
-                            track = get_results_for_track(sp,args,args.track_name,args.artist,args.album,False,args.interactive)
+                                tracks = SpotifyAPI.next(tracks)
+                                select_duplicate(tracks['items'],'','','',False)
+            elif Args.recommendations:
+                if Args.artist:
+                    if Args.album:
+                        if Args.track_name:
+                            track = get_results_for_track(Args.track_name,Args.artist,Args.album,False,Args.interactive)
                             if track and len(track) > 0:
-                                tracks = sp.recommendations(seed_tracks=[track[0]['id']])
-                                process_tracks(sp,args,tracks['tracks'])
+                                tracks = SpotifyAPI.recommendations(seed_tracks=[track[0]['id']])
+                                process_tracks(tracks['tracks'])
                     else:
-                        artist = find_artist(sp,args,args.artist,True)
+                        artist = find_artist(Args.artist,True)
                         if artist:
-                            tracks = sp.recommendations(seed_artists=[artist['id']])
-                            process_tracks(sp,args,tracks['tracks'])
+                            tracks = SpotifyAPI.recommendations(seed_artists=[artist['id']])
+                            process_tracks(tracks['tracks'])
 
-                elif args.genre:
-                    tracks = sp.recommendations(seed_genres=args.genre)
-                    process_tracks(sp,args,tracks['tracks'])
-    elif args.query:
-        if args.query == "recent":
-            query_recent(sp,args)
+                elif Args.genre:
+                    tracks = SpotifyAPI.recommendations(seed_genres=Args.genre)
+                    process_tracks(tracks['tracks'])
+    elif Args.query:
+        if Args.query == "recent":
+            query_recent()
 
 if __name__ == '__main__':
     main()
