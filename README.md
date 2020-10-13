@@ -37,7 +37,29 @@ You can add an album to a playlist with:
     python spotify-playlist.pl --add --artist Nirvana --album Nevermind --playlist <playlist name>
  
 If you add --interactive then the script will prompt when there are duplicated to allow you which one to add.
+
 If you add --dryrun then the script will not actually add anything, just say what would be added.
+
+## Overrides
+
+If a search returns duplicates or does not find the correct album, you can manually add a search override to select the correct result.
+
+This is mainly useful if you are automatically creating playlists from files or URLs.
+
+Add a line to overrides.txt in this format:
+
+    *;; Virgin Steele;; The House Of Atreus Act I;; spotify:album:47CVkzdB6oe4SH1OlPljD3
+    *;; Virgin Steele;; The House Of Atreus Act II';; !None
+    *;; Periphery;; Juggernaut: Alpha & Omega,spotify:album:5oF7PocZron3xn8Pxhofgx;; spotify:album:2vUuAbaoqFPcbp851dRXFt
+    *;; Periphery;; Periphery II: This Time It\'s Personal;; spotify:album:5ebIq78IE2Pi9vyJOaYL4A
+
+The first line maps input artist and album names to a Spotify album URI.
+
+The second line says not to map this line, but it ignore it. (In this case because the first line is a double album with both parts.)
+
+The third line maps a single set of artist and album name inputs to two Spotify album URIs.
+
+The fourth line shows that if the input contains quote characters you have to escape them.
 
 ## Recommendations
 
@@ -119,6 +141,14 @@ eg.
                      02: S 1                 The Dead;                 Alkymist;                                        Sanctuary;        album   2020 02/08 06:08 12 spotify:track:1VVGWpCKVgWMzM1C73mG64
                      03: S 1                   Oethon;                 Alkymist;                                        Sanctuary;        album   2020 01/08 07:03 11 spotify:track:69R9bNNCMKu89siZSYgqfG
                  
+## Playlist membership
+
+By adding the --show-playlist-membership parameter to a command, any track listing will show which of your user playlists any track already belongs to.
+
+The first time you use the flag the script has to load all of your user playlist data from Spotify, which will take a while.
+
+It is then cached locally to a file, and playlists data is only requeried when it changes in Spotify.
+
 ## Remove items from playlists
 
 You can remove tracks on the first N albums on a playlist with:
