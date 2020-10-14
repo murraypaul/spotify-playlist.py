@@ -8,6 +8,7 @@ import requests
 import datetime
 from collections import namedtuple
 from shutil import copyfile
+from sanitize_filename import sanitize
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -67,6 +68,7 @@ def get_args():
     cmdgroup.add_argument('--add', required=False, action="store_true", help='Add tracks to end of playlist (requires --artist and --album, --track is optiona)')
     cmdgroup.add_argument('--query', required=False, help='Query API information')
     cmdgroup.add_argument('--server', type=int, required=False, help='Start web server on specified port')
+    cmdgroup.add_argument('--export', required=False, action="store_true", help='Export tracks to CSV file')
 
     creategroup = parser.add_mutually_exclusive_group(required=False)
     creategroup.add_argument('--file', required=False, help='Import tracks from csv file')
@@ -1451,6 +1453,48 @@ def init_genre_cache_to_file():
 
     return None
 
+def write_track_to_file(track,file,i):
+    track_name = track['name']
+    album_name = ""
+    artists = ""
+    if track['album']:
+        album_name = track['album']['name']
+        artists = list_to_comma_separated_string(track['album']['artists'],'name')
+    file.write(f"{i},'{track_name}','{album_name}','{artists}'\n")
+
+def export_playlist(playlist):
+    user_id = SpotifyAPI.me()['id']
+
+    file_name = playlist['name'] + ".csv"
+    if Args.playlist and Args.file:
+        file_name = Args.file
+    file_name = sanitize(file_name)
+
+    with open(file_name,"w") as outfile:
+        i = 1
+        tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
+        for track in tracks['items']:
+            write_track_to_file(track['track'],outfile,i)
+            i = i + 1
+        while tracks['next']:
+            tracks = SpotifyAPI.next(tracks)
+            for track in tracks['items']:
+                write_track_to_file(track['track'],outfile,i)
+                i = i + 1
+
+def export_playlists():
+    user_id = SpotifyAPI.me()['id']
+
+    playlists = SpotifyAPI.user_playlists(user_id)
+    for playlist in playlists['items']:
+        if playlist['name'] == Args.playlist or not Args.playlist:
+            export_playlist(playlist)
+    while playlists['next']:
+        playlists = SpotifyAPI.next(playlists)
+        for playlist in playlists['items']:
+            if playlist['name'] == Args.playlist or not Args.playlist:
+                export_playlist(playlist)
+
 def main():
     global Args
     global SpotifyAPI
@@ -1617,6 +1661,8 @@ def main():
                 elif Args.genre:
                     tracks = SpotifyAPI.recommendations(seed_genres=[Args.genre])
                     process_tracks(tracks['tracks'])
+    elif Args.export:
+        export_playlists()
     elif Args.query:
         if Args.query == "recent":
             query_recent()
