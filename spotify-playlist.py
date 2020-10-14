@@ -13,7 +13,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, quote_plus, unquote_plus
+from urllib.parse import urlparse, quote_plus, unquote_plus, parse_qs
 
 import json
 
@@ -35,6 +35,26 @@ TrackPlaylistCache = {}
 PlaylistDetailsCache = {}
 
 WebOutput = None
+
+GenresGood = []
+GenresBad = []
+
+URLCache = {}
+URLCacheTimeout = 60*60
+
+def read_URL(url):
+    timenow = int(time.time())
+    cacheEntry = URLCache.get(url,[-1,None])
+    if cacheEntry[1] == None or cacheEntry[0] < timenow - URLCacheTimeout:
+#        print(f"No or expired cache for {url}")
+        page = requests.get(url)
+        data = html.fromstring(page.content)
+        URLCache[url] = [timenow,data]
+        time.sleep(0.1)
+        return data
+    else:
+#        print(f"Retrieved {url} from cache")
+        return cacheEntry[1]
 
 def get_args():
     parser = argparse.ArgumentParser(description='Spotify toolbox')
@@ -84,6 +104,8 @@ def get_args():
 
     parser.add_argument('--last-fm', required=False, action="store_true", help='Enable Last.FM integration')
     parser.add_argument('--last-fm-recent-count', type=int, default=-1, required=False, help='How many recent tracks to retrieve from Last.FM')
+
+    parser.add_argument('--server-default-playlist', required=False, help='Default playlist to add tracks to')
 
     return parser.parse_args()
 
@@ -904,6 +926,51 @@ def get_tracks_to_import_html_metalstorm_releases(data):
 
     return tracks
 
+def get_tracks_to_import_html_metalstorm_releases_extended(data):
+    lines = data.xpath('//*[@id="page-content"]//div[@class="album-title"]/span')
+
+    tracks = []
+    i = 0
+    while i < len(lines)-1:
+        line_text = lines[i].text_content().strip()
+        if not " - " in line_text:
+            continue
+
+        genre = []
+        lines[i].make_links_absolute("http://www.metalstorm.net/")
+        for link in lines[i].iterlinks():
+            if "/album.php" in link[2]:
+                data2 = read_URL(link[2])
+                lines2 = data2.xpath('//*[@id="page-content"]/div[3]/div[1]/div/div[2]/table/tr[2]/td[2]/a/text()')
+                for line2 in lines2:
+                    genrename = line2.strip()
+                    if genrename in GenresGood:
+                        thisgenre = ['+',genrename]
+                    elif genrename in GenresBad:
+                        thisgenre = ['-',genrename]
+                    else:
+                        thisgenre = [' ',genrename]
+                    genre.append(thisgenre)
+
+        artist = line_text.partition(" - ")[0].strip()
+        album = line_text.partition(" - ")[2].strip()
+
+        i = i + 1
+        line_text = lines[i].text_content().strip()
+        while line_text[-4:-2] != "20" and i < len(lines):
+            i = i + 1
+            line_text = lines[i].text_content().strip()
+
+        release_date = line_text
+        i = i + 1
+
+#        print(f"Read {artist},{album},{release_date},{genre}")
+#        print("(%s;%s)" % (artist, album))
+        track = ['*', artist, album, release_date, genre]
+        tracks.append(track)
+
+    return tracks
+
 def get_tracks_to_import(data):
     if Args.file:
         return get_tracks_to_import_csv(data)
@@ -1241,6 +1308,7 @@ def init_playlist_cache_playlist(playlist):
     if playlist['id'] in PlaylistDetailsCache:
         if playlist['snapshot_id'] != PlaylistDetailsCache[playlist['id']]['snapshot_id']:
             print(f"Cached data for playlist {playlist['name']} is out of date, refreshing")
+#            init_playlist_cache_purge_tracklist_playlist(playlist['id'])
         else:
 #            print("Using cached data")
             return None
@@ -1256,17 +1324,31 @@ def init_playlist_cache_playlist(playlist):
         for track in tracks['items']:
             init_playlist_cache_playlist_track(playlist,track)
 
+def init_playlist_cache_purge_tracklist_playlist(playlist_id):
+    for track_id in TrackPlaylistCache:
+        if playlist_id in TrackPlaylistCache[track_id]:
+            TrackPlaylistCache[track_id].remove(playlist_id)
+
+def init_playlist_cache_purge_tracklist():
+    for playlist_id in PlaylistDetailsCache:
+        init_playlist_cache_purge_tracklist_playlist(playlist_id)
+
+def init_playlist_cache_process_playlist(playlist_id):
+    for track_id in PlaylistDetailsCache[playlist_id]['tracks']:
+        if track_id == None:
+            continue
+        elif track_id in TrackPlaylistCache:
+            TrackPlaylistCache[track_id].append(playlist_id)
+        else:
+            TrackPlaylistCache[track_id] = [playlist_id]
+
 def init_playlist_cache_process():
     for playlist_id in PlaylistDetailsCache:
-        for track_id in PlaylistDetailsCache[playlist_id]['tracks']:
-            if track_id == None:
-                continue
-            elif track_id in TrackPlaylistCache:
-                TrackPlaylistCache[track_id].append(playlist_id)
-            else:
-                TrackPlaylistCache[track_id] = [playlist_id]
+        init_playlist_cache_process_playlist(playlist_id)
 
 def init_playlist_cache():
+    init_playlist_cache_purge_tracklist()
+
     init_playlist_cache_from_file()
 
     user_id = SpotifyAPI.me()['id']
@@ -1319,6 +1401,43 @@ def init_playlist_cache_to_file():
 
     return None
 
+def init_genre_cache_from_file():
+    GenresGood.clear()
+    GenresBad.clear()
+    try:
+        with open('genres.txt','r') as cachefile:
+            for line in cachefile:
+                line = line.strip()
+                if len(line) > 2:
+                    if line[0] == '+':
+                        GenresGood.append(line[1:])
+                    elif line[0] == '-':
+                        GenresBad.append(line[1:])
+    except FileNotFoundError:
+        return None
+
+    print(f"Read {len(GenresGood)+len(GenresBad)} entries from genre file.")
+
+def init_genre_cache_to_file():
+    try:
+        copyfile('genres.txt','genres.bak')
+    except FileNotFoundError:
+        pass
+    try:
+        with open('genres.txt','w') as cachefile:
+            for entry in GenresGood:
+                line = f"+{entry}\n" 
+                cachefile.write(line)
+            for entry in GenresBad:
+                line = f"-{entry}\n" 
+                cachefile.write(line)
+
+        print(f"Wrote {len(GenresGood)+len(GenresBad)} entries to genre file.")
+    except:
+        print("Error writing genre file, restoring backup")
+        copyfile('genre.bak','genre.txt')
+
+    return None
 
 def main():
     global Args
@@ -1352,6 +1471,8 @@ def main():
         init_playlist_cache()
 
     init_spotify_recent_cache()
+
+    init_genre_cache_from_file()
 
     if Args.last_fm and last_fm_client_id != "" and last_fm_client_secret != "" and last_fm_username != "":
         global LastFM
@@ -1497,6 +1618,8 @@ def main():
 
 class web_server(BaseHTTPRequestHandler):
     def do_GET(self):
+        init_playlist_cache()
+
         global WebOutput
         WebOutput = self
         self.parsed_path = urlparse(self.path)
@@ -1504,6 +1627,12 @@ class web_server(BaseHTTPRequestHandler):
             self.do_GET_main_page()
         elif self.parsed_path.path == "/search":
             self.do_GET_search()
+        elif self.parsed_path.path == "/releases":
+            self.do_GET_releases()
+        elif self.parsed_path.path == "/add_album_to_playlist":
+            self.do_GET_add_album_to_playlist()
+        elif self.parsed_path.path == "/tag_genre":
+            self.do_GET_tag_genre()
         else:
             self.do_GET_error()
         WebOutput = None
@@ -1511,29 +1640,9 @@ class web_server(BaseHTTPRequestHandler):
     def do_GET_error(self):
         self.send_response(404)
         self.end_headers()
+        pprint.pprint(self.parsed_path)
 
-
-    def do_GET_main_page(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
-        self.wfile.write(b"</head>\n")
-        self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1>Spotify Toolbox</h1>\n")
-        self.wfile.write(b"<ul>\n")
-        self.wfile.write(b'<li><a href="/search">Search</a></li>\n')
-        self.wfile.write(b"</ul>\n")
-
-    def do_GET_search(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
+    def addCSS(self):
         self.wfile.write(b'''
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 <style>
@@ -1604,13 +1713,31 @@ body {
     width: 25%;
     float: left;
     padding: 20px;
-    border: 2px solid red;
+/*    border: 2px solid red;*/
+} 
+.album-header {
+    width: 75%;
+    float: left;
+    padding: 0px;
+/*    border: 2px solid red;*/
+} 
+.album-header .album-details {
+    width: 25%;
+    float: left;
+    padding: 20px;
+/*    border: 2px solid red;*/
+} 
+.album-header .album-actions {
+    width: 75%;
+    float: right;
+    padding: 20px;
+/*    border: 2px solid red;*/
 } 
 .album-tracklist {
     width: 75%;
     float: left;
     padding: 20px;
-    border: 2px solid red;
+/*    border: 2px solid red;*/
 } 
 
 .album-tracklist table { width: 100%; }
@@ -1622,6 +1749,10 @@ body {
 .album-tracklist .playlist { width: 15%; }
 .album-tracklist .track-uri { display: none; }
  
+.genre-good { color: green; }
+.genre-bad { color: red; }
+.genre-untagged { color: grey; }
+
 .clear {
     clear: both;
 }
@@ -1643,6 +1774,151 @@ body {
   }
 }
 </style>''')
+    def addAlbum(self,album,release_date,genres):
+        user_id = SpotifyAPI.me()['id']
+
+        self.wfile.write(b"<div class='album-container'>")
+        self.wfile.write(b"<div class='album-image'>")
+        if len(album['images']) > 0:
+            self.wfile.write((f"<img src='{album['images'][0]['url']}' width='100%' />").encode("utf-8"))
+        self.wfile.write(b"</div>")
+
+        self.wfile.write(b"<div class='album-header'>")
+        self.wfile.write(b"<div class='album-details'>")
+        self.wfile.write((f"<div>Release date: {release_date}</div>\n").encode("utf-8"))
+        self.wfile.write((f"<div>Genre: ").encode("utf-8"))
+        goodGenres = []
+        badGenres = []
+        untaggedGenres = []
+        for genre in genres:
+            if genre[0] == '+':
+                self.wfile.write((f"<span class='genre-good'>{genre[1]}</span><br/>").encode("utf-8"))
+                goodGenres.append(genre[1])
+            elif genre[0] == '-':
+                self.wfile.write((f"<span class='genre-bad'>{genre[1]}</span><br/>").encode("utf-8"))
+                badGenres.append(genre[1])
+            else:
+                self.wfile.write((f"<span class='genre-untagged'>{genre[1]}</span><br/>").encode("utf-8"))
+                untaggedGenres.append(genre[1])
+
+        self.wfile.write(b"</div>")
+        self.wfile.write(b"</div>\n")
+
+        self.wfile.write(b"<div class='album-actions'>")
+
+        self.wfile.write((f"<form action='/add_album_to_playlist'>\n").encode("utf-8"))
+        self.wfile.write(b'<label for="playlist">Add album to playlist:</label>')
+        self.wfile.write(b'<select name="playlist" id="playlist">\n')
+        for playlist_id in PlaylistDetailsCache:
+            entry = PlaylistDetailsCache[playlist_id]
+            if entry['owner_id'] != user_id:
+                continue;
+            selected = ""
+            if Args.server_default_playlist == entry['name']:
+                selected = "selected"
+            self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
+        self.wfile.write(b"</select>\n")
+        self.wfile.write(b"<input type='submit' value='Submit'>")
+        self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
+        self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+        self.wfile.write(b"</form>")
+
+        if len(badGenres) + len(untaggedGenres) > 0:
+            self.wfile.write((f"<form action='/tag_genre'>\n").encode("utf-8"))
+            self.wfile.write(b'<label for="genre_good">Add genre to liked:</label>')
+            self.wfile.write(b'<select name="tag_genre_good" id="tag_genre_good">\n')
+            for genre in untaggedGenres:
+                self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
+            for genre in badGenres:
+                self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
+            self.wfile.write(b"</select>\n")
+            self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+            self.wfile.write(b"</form>")
+
+        if len(badGenres) + len(goodGenres) > 0:
+            self.wfile.write((f"<form action='/tag_genre'>\n").encode("utf-8"))
+            self.wfile.write(b'<label for="genre_untagged">Remove tag from genre:</label>')
+            self.wfile.write(b'<select name="tag_genre_untagged" id="tag_genre_untagged">\n')
+            for genre in goodGenres:
+                self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
+            for genre in badGenres:
+                self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
+            self.wfile.write(b"</select>\n")
+            self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+            self.wfile.write(b"</form>")
+
+        if len(goodGenres) + len(untaggedGenres) > 0:
+            self.wfile.write((f"<form action='/tag_genre'>\n").encode("utf-8"))
+            self.wfile.write(b'<label for="genre_bad">Add genre to disliked:</label>')
+            self.wfile.write(b'<select name="tag_genre_bad" id="tag_genre_bad">\n')
+            for genre in untaggedGenres:
+                self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
+            for genre in badGenres:
+                self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
+            self.wfile.write(b"</select>\n")
+            self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+            self.wfile.write(b"</form>")
+
+        self.wfile.write(b"</div>")
+        self.wfile.write(b"</div>")
+
+        self.wfile.write(b"<div class='album-tracklist'>")
+        self.wfile.write(b"<table>")
+        for i,track in enumerate(SpotifyAPI.album_tracks(album['id'])['items']):
+            self.wfile.write(b"<tr>")
+            print_track(track,i+1,album)
+            self.wfile.write(b"</tr>")
+        self.wfile.write(b"</table>")
+
+        self.wfile.write(b"</div>")
+        self.wfile.write(b"</div>")
+
+        self.wfile.write(b"<div class='clear'/>")
+
+    def getResults(self,track_name,artist,album):
+        self.wfile.write((f"<h2>Results for {artist},{album}</h2>\n").encode("utf-8"))
+
+        results = get_search_exact('*',artist,album)
+
+        # If not found, try various changes
+        if len(results) == 0:
+            if remove_punctuation(artist) != artist:
+                results_artist_punctuation = get_search_exact('*',remove_punctuation(artist),album)
+                results.extend(results_artist_punctuation)
+
+            if remove_brackets(artist) != artist or remove_brackets(album) != album:
+                results_all_brackets = get_search_exact('*',remove_brackets(artist),remove_brackets(album))
+                results.extend(results_all_brackets)
+
+        return results
+
+    def do_GET_main_page(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.addCSS()
+        self.wfile.write(b"</head>\n")
+        self.wfile.write(b"<body>\n")
+        self.wfile.write(b"<h1>Spotify Toolbox</h1>\n")
+        self.wfile.write(b"<ul>\n")
+        self.wfile.write(b'<li><a href="/search">Search</a></li>\n')
+        self.wfile.write(b'<li><a href="/releases">MetalStorm New Releases</a></li>\n')
+        self.wfile.write(b"</ul>\n")
+
+    def do_GET_search(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.addCSS()
         self.wfile.write(b"</head>\n")
         self.wfile.write(b"<body>\n")
         self.wfile.write(b"<h1>Spotify Toolbox - Search</h1>\n")
@@ -1662,48 +1938,125 @@ body {
                 data = search_term.split("-")
                 artist = data[0].strip()
                 album = data[1].strip()
-                self.wfile.write((f"Results for {artist},{album}\n").encode("utf-8"))
 
-                results = get_search_exact('*',artist,album)
-
-                # If not found, try various changes
-                if len(results) == 0:
-                    if remove_punctuation(artist) != artist:
-                        results_artist_punctuation = get_search_exact('*',remove_punctuation(artist),album)
-                        results.extend(results_artist_punctuation)
-
-                    if remove_brackets(artist) != artist or remove_brackets(album) != album:
-                        results_all_brackets = get_search_exact('*',remove_brackets(artist),remove_brackets(album))
-                        results.extend(results_all_brackets)
+                results = self.getResults('*',artist,album)
 
                 for album in results:
                     self.wfile.write(b"<hr/>")
+                    self.addAlbum(album)
 
-                    self.wfile.write(b"<div class='album-container'>")
-                    self.wfile.write(b"<div class='album-image'>")
-                    if len(album['images']) > 0:
-                        self.wfile.write((f"<img src='{album['images'][0]['url']}' width='100%' />").encode("utf-8"))
-                    self.wfile.write(b"</div>")
-
-                    self.wfile.write(b"<div class='album-tracklist'>")
-                    self.wfile.write(b"<table>")
-                    for i,track in enumerate(SpotifyAPI.album_tracks(album['id'])['items']):
-                        self.wfile.write(b"<tr>")
-                        print_track(track,i+1,album)
-                        self.wfile.write(b"</tr>")
-                    self.wfile.write(b"</table>")
-
-                    self.wfile.write(b"</div>")
-                    self.wfile.write(b"</div>")
-
-                    self.wfile.write(b"<div class='clear'/>")
-#                    pprint.pprint(album)
-#                    for i,track in enumerate(album):
-#                        pprint.pprint(track)
-#                        print_track(track,i+1)
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
+
+
+    def do_GET_releases(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.addCSS()
+        self.wfile.write(b"</head>\n")
+
+        self.wfile.write(b"<body>\n")
+        self.wfile.write(b"<h1>Spotify Toolbox - MetalStorm New Releases</h1>\n")
+
+        params = parse_qs(self.parsed_path.query)
+        if 'message' in params:
+            for message in params['message']:
+                self.wfile.write((f"<h3>{message}<h3>").encode("utf-8"))
+
+        data = read_URL("http://www.metalstorm.net/events/new_releases.php")
+        tracks_to_import = get_tracks_to_import_html_metalstorm_releases_extended(data)
+
+        for release in tracks_to_import:
+            self.wfile.write(b"<hr/>")
+            results = self.getResults('*',release[1],release[2])
+
+            for album in results:
+                self.addAlbum(album,release[3],release[4])
+
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
+
+    def do_GET_add_album_to_playlist(self):
+        params = parse_qs(self.parsed_path.query)
+#        pprint.pprint(params)
+
+        if 'album' in params and 'playlist' in params:
+            album = SpotifyAPI.album(params['album'][0])
+            playlist = SpotifyAPI.playlist(params['playlist'][0])
+
+            tracks = SpotifyAPI.album_tracks(album['id'])
+            track_ids = []
+            for track in tracks['items']:
+                track_ids.append(track['id'])
+            while tracks['next']:
+                tracks = SpotifyAPI.next(tracks)
+                for track in tracks['items']:
+                    track_ids.append(track['id'])
+            SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
+
+    #        PlaylistDetailsCache[playlist['id']]['snapshot_id'] = ''
+    #        init_playlist_cache_playlist(playlist)
+    #        init_playlist_cache_purge_tracklist_playlist(playlist['id'])
+    #        init_playlist_cache_process_playlist(playlist['id'])
+
+            message = f"Added {len(track_ids)} tracks to playlist {playlist['name']}"
+        else:
+            message = "Error in parameters"
+
+        self.send_response(302)
+        if 'return' in params:
+            self.send_header('Location', f"{params['return'][0]}?message={message}")
+        else:
+            self.send_header('Location', f"/?message={message}")
+        self.end_headers()
+
+    def do_GET_tag_genre(self):
+        print("In do_GET_tag_genre")
+        params = parse_qs(self.parsed_path.query)
+#        pprint.pprint(params)
+        message = ""
+        if 'tag_genre_untagged' in params:
+            tags = params['tag_genre_untagged']
+            for tag in tags:
+                if tag in GenresGood:
+                    message = message + f"Removed Liked tag from genre {tag}. "
+                    GenresGood.remove(tag)
+                if tag in GenresBad:
+                    message = message + f"Removed Disliked tag from genre {tag}. "
+                    GenresBad.remove(tag)
+        if 'tag_genre_good' in params:
+            tags = params['tag_genre_good']
+            for tag in tags:
+                if tag in GenresBad:
+                    message = message + f"Removed Disliked tag from genre {tag}. "
+                    GenresBad.remove(tag)
+                if tag not in GenresGood:
+                    message = message + f"Added Liked tag to genre {tag}. "
+                    GenresGood.append(tag)
+        if 'tag_genre_bad' in params:
+            tags = params['tag_genre_bad']
+            for tag in tags:
+                if tag in GenresGood:
+                    message = message + f"Removed Liked tag from genre {tag}. "
+                    GenresGood.remove(tag)
+                if tag not in GenresBad:
+                    message = message + f"Added Disliked tag to genre {tag}. "
+                    GenresBad.append(tag)
+
+        init_genre_cache_to_file()
+
+        self.send_response(302)
+        if 'return' in params:
+            self.send_header('Location', f"{params['return'][0]}?message={message}")
+        else:
+            self.send_header('Location', f"/?message={message}")
+        self.end_headers()
+
 
 if __name__ == '__main__':
     main()
