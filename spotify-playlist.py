@@ -836,9 +836,9 @@ def open_dataset():
 
 def get_playlist_name_csv(data):
     playlist_name = Args.file
-    if playlist_name[-4] == '.csv':
+    if playlist_name[-4:] == '.csv':
         playlist_name = playlist_name[0:-4]
-    playlist_name = 'GPM: ' + playlist_name
+#    playlist_name = 'GPM: ' + playlist_name
     return playlist_name
 
 def get_playlist_name_html_metalstorm_top(data):
@@ -859,11 +859,11 @@ def get_playlist_name(data):
     if Args.file:
         return get_playlist_name_csv(data)
     elif Args.metalstorm_top:
-        return get_playlist_name_html_metalstorm_top(data)
+        return get_playlist_name_html_metalstorm_top(data).replace("  "," ")
     elif Args.metalstorm_list:
-        return get_playlist_name_html_metalstorm_list(data)
+        return get_playlist_name_html_metalstorm_list(data).replace("  "," ")
     elif Args.metalstorm_releases:
-        return get_playlist_name_html_metalstorm_releases(data)
+        return get_playlist_name_html_metalstorm_releases(data).replace("  "," ")
     else:
         return None
 
@@ -1049,7 +1049,7 @@ def create_playlist():
 #            pprint.pprint(results)
 #            used_override = True
 
-        result_count = len(results)
+        result_count = len(results[0])
         actual_count = result_count
         if track_name == '*':
             actual_count = len(results[0])
@@ -1455,12 +1455,15 @@ def init_genre_cache_to_file():
 
 def write_track_to_file(track,file,i):
     track_name = track['name']
+    track_uri = track['uri']
     album_name = ""
+    album_uri = ""
     artists = ""
     if track['album']:
         album_name = track['album']['name']
+        album_uri = track['album']['uri']
         artists = list_to_comma_separated_string(track['album']['artists'],'name')
-    file.write(f"{i},'{track_name}','{album_name}','{artists}'\n")
+    file.write(f'"{track_name}","{artists}","{album_name}",{i},"{track_uri}","{album_uri}"\n')
 
 def export_playlist(playlist):
     user_id = SpotifyAPI.me()['id']
