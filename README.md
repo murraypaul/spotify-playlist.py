@@ -175,3 +175,20 @@ You can set the description for a playlist with:
 
     python spotify-playlist.pl --set-description <desc> --playlist <playlist name>
 
+## Export playlists
+
+You can export all playlists to separate CSV files, named after the playlists, with:
+
+    python spotify-playlist.pl --export
+
+You can export a single playlist to a CSV file named after the playlist with:
+
+    python spotify-playlist.pl --export --playlist <playlist name>
+
+You can export a single playlist to a CSV file with a given file name with:
+
+    python spotify-playlist.pl --export --playlist <playlist name> --file <file name>
+    
+The export format is Track, Artist, Album, Sequence, Track URI, Album URI.
+This format is suitable for re-importing with the --create function.
+
