@@ -172,13 +172,17 @@ def remove_brackets(text):
         text = text.partition("(")[0]
     return text
 
+def list_to_comma_separated_string(list,key):
+    artists = ""
+    for artist in list:
+        if artists != "":
+            artists = artists + ", "
+        artists = artists + artist[key]
+    return artists
+
 def print_track(result,i,album=None):
     track_name = result['name']
-    artists = "";
-    for artist in result['artists']:
-        if len(artists) > 0:
-            artists = artists + ", "
-        artists = artists + artist['name']
+    artists = list_to_comma_separated_string(result['artists'],'name')
     if album == None:
         album = result['album']
     album_name = album['name']
@@ -262,13 +266,18 @@ def print_track(result,i,album=None):
                     ))
 
 
-def select_duplicate(results,track_name,artist_name,album_name,ask=True):
-    print("Results for              %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
+def select_duplicate(results,track_name,artist_name,album_name,ask=True,start_count=0):
+    if WebOutput == None:
+        print("Results for              %24.24s; %24.24s; %48.48s" % (track_name, artist_name, album_name))
     for i in range(len(results)):
         result = results[i]
         if 'track' in result:
             result = result['track']
-        print_track(result,i+1)
+        if WebOutput != None:
+            WebOutput.wfile.write(b"<tr>\n")
+        print_track(result,start_count+i+1)
+        if WebOutput != None:
+            WebOutput.wfile.write(b"</tr>")
     if ask:
         try:
             choice = int(input("Enter choice: "))
@@ -279,12 +288,7 @@ def select_duplicate(results,track_name,artist_name,album_name,ask=True):
     return []
 
 def print_album(count,album,track_count=-1):
-    artists = "";
-    for artist in album['artists']:
-        if len(artists) > 0:
-            artists = artists + ", "
-        artists = artists + artist['name']
-
+    artists = list_to_comma_separated_string(album['artists'],'name')
     count_source = " "
     if track_count == -1:
         track_count = 0
@@ -1310,10 +1314,11 @@ def init_playlist_cache_playlist(playlist):
             print(f"Cached data for playlist {playlist['name']} is out of date, refreshing")
 #            init_playlist_cache_purge_tracklist_playlist(playlist['id'])
         else:
+            PlaylistDetailsCache[playlist['id']]['active'] = True
 #            print("Using cached data")
             return None
 
-    PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'snapshot_id': playlist['snapshot_id'], 'owner_id': playlist['owner']['id'], 'tracks' : [] }
+    PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'snapshot_id': playlist['snapshot_id'], 'owner_id': playlist['owner']['id'], 'tracks': [], 'active': True }
 
     user_id = SpotifyAPI.me()['id']
     tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
@@ -1334,13 +1339,16 @@ def init_playlist_cache_purge_tracklist():
         init_playlist_cache_purge_tracklist_playlist(playlist_id)
 
 def init_playlist_cache_process_playlist(playlist_id):
-    for track_id in PlaylistDetailsCache[playlist_id]['tracks']:
-        if track_id == None:
-            continue
-        elif track_id in TrackPlaylistCache:
-            TrackPlaylistCache[track_id].append(playlist_id)
-        else:
-            TrackPlaylistCache[track_id] = [playlist_id]
+    if not PlaylistDetailsCache[playlist_id]['active']:
+        print(f"Playlist {PlaylistDetailsCache[playlist_id]['name']} is no longer availble on Spotify, ignoring")
+    else:
+        for track_id in PlaylistDetailsCache[playlist_id]['tracks']:
+            if track_id == None:
+                continue
+            elif track_id in TrackPlaylistCache:
+                TrackPlaylistCache[track_id].append(playlist_id)
+            else:
+                TrackPlaylistCache[track_id] = [playlist_id]
 
 def init_playlist_cache_process():
     for playlist_id in PlaylistDetailsCache:
@@ -1371,7 +1379,7 @@ def init_playlist_cache_from_file():
                 line = line.strip()
                 data = line.split(';; ')
                 if len(data) >= 4:
-                    PlaylistDetailsCache[data[0]] = { 'name': data[1], 'snapshot_id': data[2], 'owner_id': data[3], 'tracks' : [] }
+                    PlaylistDetailsCache[data[0]] = { 'name': data[1], 'snapshot_id': data[2], 'owner_id': data[3], 'tracks': [], 'active': False }
                     for i in range(4,len(data)):
                         PlaylistDetailsCache[data[0]]['tracks'].append(data[i])
     except FileNotFoundError:
@@ -1386,15 +1394,19 @@ def init_playlist_cache_to_file():
     except FileNotFoundError:
         pass
     try:
+        count = 0
         with open('playlist_cache.txt','w') as cachefile:
             for entry in PlaylistDetailsCache:
+                if not PlaylistDetailsCache[entry]['active']:
+                    continue
                 line = f"{entry};; {PlaylistDetailsCache[entry]['name']};; {PlaylistDetailsCache[entry]['snapshot_id']};; {PlaylistDetailsCache[entry]['owner_id']}"
                 for track in PlaylistDetailsCache[entry]['tracks']:
                     line = line + f";; {track}"
                 line = line + "\n"
                 cachefile.write(line)
+                count = count + 1
 
-        print(f"Wrote {len(PlaylistDetailsCache)} entries to playlist details cache file.")
+        print(f"Wrote {count} entries to playlist details cache file.")
     except:
         print("Error writing playlist details cache file, restoring backup")
         copyfile('playlist_cache.bak','playlist_cache.txt')
@@ -1623,12 +1635,17 @@ class web_server(BaseHTTPRequestHandler):
         global WebOutput
         WebOutput = self
         self.parsed_path = urlparse(self.path)
+        pprint.pprint(self.parsed_path)
         if self.parsed_path.path == "/":
             self.do_GET_main_page()
+        elif self.parsed_path.path == "/spotify-playlist.css":
+            self.addCSS_from_file('spotify-playlist.css')
         elif self.parsed_path.path == "/search":
             self.do_GET_search()
         elif self.parsed_path.path == "/releases":
             self.do_GET_releases()
+        elif self.parsed_path.path == "/playlists":
+            self.do_GET_playlists()
         elif self.parsed_path.path == "/add_album_to_playlist":
             self.do_GET_add_album_to_playlist()
         elif self.parsed_path.path == "/tag_genre":
@@ -1643,137 +1660,20 @@ class web_server(BaseHTTPRequestHandler):
         pprint.pprint(self.parsed_path)
 
     def addCSS(self):
-        self.wfile.write(b'''
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-<style>
-* {box-sizing: border-box;}
+        self.wfile.write(b"<link rel='stylesheet' href='spotify-playlist.css'>")
 
-body {
-  margin: 0;
-  font-family: Arial, Helvetica, sans-serif;
-}
+    def addCSS_from_file(self,file_name):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/css; charset=UTF-8')
+        self.end_headers()
+        try:
+            with open(file_name,'r') as cssfile:
+                for line in cssfile:
+                    self.wfile.write(line.encode("utf-8"))
+        except:
+            print(f"Error reading css file")
+            pass
 
-.topnav {
-  overflow: hidden;
-  background-color: #e9e9e9;
-}
-
-.topnav a {
-  float: left;
-  display: block;
-  color: black;
-  text-align: center;
-  padding: 14px 16px;
-  text-decoration: none;
-  font-size: 17px;
-}
-
-.topnav a:hover {
-  background-color: #ddd;
-  color: black;
-}
-
-.topnav a.active {
-  background-color: #2196F3;
-  color: white;
-}
-
-.topnav .search-container {
-  float: left;
-}
-
-.topnav input[type=text] {
-  padding: 6px;
-  margin-top: 8px;
-  font-size: 17px;
-  border: none;
-}
-
-.topnav .search-container button {
-  float: right;
-  padding: 6px 10px;
-  margin-top: 8px;
-  margin-right: 16px;
-  background: #ddd;
-  font-size: 17px;
-  border: none;
-  cursor: pointer;
-}
-
-.topnav .search-container button:hover {
-  background: #ccc;
-}
-
-.album-container {
-    border: 3px solid #fff;
-    padding: 20px;
-}
-
-.album-image {
-    width: 25%;
-    float: left;
-    padding: 20px;
-/*    border: 2px solid red;*/
-} 
-.album-header {
-    width: 75%;
-    float: left;
-    padding: 0px;
-/*    border: 2px solid red;*/
-} 
-.album-header .album-details {
-    width: 25%;
-    float: left;
-    padding: 20px;
-/*    border: 2px solid red;*/
-} 
-.album-header .album-actions {
-    width: 75%;
-    float: right;
-    padding: 20px;
-/*    border: 2px solid red;*/
-} 
-.album-tracklist {
-    width: 75%;
-    float: left;
-    padding: 20px;
-/*    border: 2px solid red;*/
-} 
-
-.album-tracklist table { width: 100%; }
-.album-tracklist .track-number { width: 5%; }
-.album-tracklist .play-count { width: 5%; }
-.album-tracklist .track-name { width: 25%; }
-.album-tracklist .artist { width: 15%; }
-.album-tracklist .album { width: 15%; }
-.album-tracklist .playlist { width: 15%; }
-.album-tracklist .track-uri { display: none; }
- 
-.genre-good { color: green; }
-.genre-bad { color: red; }
-.genre-untagged { color: grey; }
-
-.clear {
-    clear: both;
-}
-
-@media screen and (max-width: 600px) {
-  .topnav .search-container {
-    float: none;
-  }
-  .topnav a, .topnav input[type=text], .topnav .search-container button {
-    float: none;
-    display: block;
-    text-align: left;
-    width: 100%;
-    margin: 0;
-    padding: 14px;
-  }
-  .topnav input[type=text] {
-    border: 1px solid #ccc;
-  }
-}
-</style>''')
     def addAlbum(self,album,release_date,genres):
         user_id = SpotifyAPI.me()['id']
 
@@ -1909,6 +1809,7 @@ body {
         self.wfile.write(b"<ul>\n")
         self.wfile.write(b'<li><a href="/search">Search</a></li>\n')
         self.wfile.write(b'<li><a href="/releases">MetalStorm New Releases</a></li>\n')
+        self.wfile.write(b'<li><a href="/playlists">Playlists</a></li>\n')
         self.wfile.write(b"</ul>\n")
 
     def do_GET_search(self):
@@ -1961,12 +1862,12 @@ body {
         self.wfile.write(b"</head>\n")
 
         self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1>Spotify Toolbox - MetalStorm New Releases</h1>\n")
+        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - MetalStorm New Releases</h1>\n")
 
         params = parse_qs(self.parsed_path.query)
         if 'message' in params:
             for message in params['message']:
-                self.wfile.write((f"<h3>{message}<h3>").encode("utf-8"))
+                self.wfile.write((f"<h3>{message}</h3>").encode("utf-8"))
 
         data = read_URL("http://www.metalstorm.net/events/new_releases.php")
         tracks_to_import = get_tracks_to_import_html_metalstorm_releases_extended(data)
@@ -2056,6 +1957,140 @@ body {
         else:
             self.send_header('Location', f"/?message={message}")
         self.end_headers()
+
+    def do_GET_playlists_add_header(self):
+        user_id = SpotifyAPI.me()['id']
+        params = parse_qs(self.parsed_path.query)
+
+        playlist_selected = ''
+        if 'playlist' in params:
+            playlist_selected = params['playlist'][0]
+
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.addCSS()
+        self.wfile.write(b"</head>\n")
+        self.wfile.write(b"<body>\n")
+        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - Playlists</h1>\n")
+
+        if 'message' in params:
+            for message in params['message']:
+                self.wfile.write((f"<h3>{message}</h3>").encode("utf-8"))
+
+        self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
+        self.wfile.write(b'<label for="playlist">Select playlist:</label>')
+        self.wfile.write(b'<select name="playlist" id="playlist">\n')
+        for playlist_id in PlaylistDetailsCache:
+            entry = PlaylistDetailsCache[playlist_id]
+            if entry['owner_id'] != user_id:
+                continue;
+            selected = ""
+            if playlist_selected == playlist_id:
+                selected = "selected"
+            elif playlist_selected == "" and Args.server_default_playlist == entry['name']:
+                selected = "selected"
+            self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
+        self.wfile.write(b"</select>\n")
+        self.wfile.write(b"<input type='submit' value='Submit'>")
+#        self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
+#        self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+        self.wfile.write(b"</form>\n")
+
+
+    def do_GET_playlists(self):
+        user_id = SpotifyAPI.me()['id']
+        params = parse_qs(self.parsed_path.query)
+
+        playlist = None
+        if 'playlist' in params:
+            playlist = SpotifyAPI.playlist(params['playlist'][0])
+        if playlist == None:
+            self.do_GET_playlists_add_header()
+            return None
+
+        if 'action' in params:
+            action = params['action'][0]
+            if action == 'delete-first-N' and 'firstN' in params:
+                firstN = (int)(params['firstN'][0])
+#                print(f"Would delete first {firstN} albums from playlist {playlist['name']}")
+
+                message = ""
+                if firstN > 0:
+                    message = f"Removed albums from playlist {playlist['name']}<ul>"
+                    new_album_count = 1
+                    tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
+                    firsttrack = tracks['items'][0]['track']
+                    album = firsttrack['album']
+                    first_album_tracks = []
+                    while True:
+                        for track in tracks['items']:
+                            if track['track']['album'] == album:
+                                first_album_tracks.append(track)
+                            else:
+                                message = message + f"<li>{album['name']} by {list_to_comma_separated_string(album['artists'],'name')}</li>"
+                                new_album_count = new_album_count + 1
+
+                                tracks_to_remove = []
+                                for remove_track in first_album_tracks:
+                                    tracks_to_remove.append(remove_track['track']['id'])
+                                    if Args.dryrun:
+                                        print_track(remove_track['track'],len(tracks_to_remove))
+                                SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(user_id,playlist['id'],tracks_to_remove)
+
+                                if new_album_count > firstN:
+                                    break;
+                                album = track['track']['album']
+                                first_album_tracks = []
+                                first_album_tracks.append(track)
+
+                        if new_album_count > firstN:
+                            break;
+                        elif tracks['next']:
+                            tracks = SpotifyAPI.next(tracks)
+                        else:
+                            break;
+                    message = message + "</ul>"
+
+                self.send_response(302)
+                self.send_header('Location', f"/playlists?playlist={playlist['id']}&message={message}")
+                self.end_headers()
+                return None
+
+        self.do_GET_playlists_add_header()
+
+        self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
+        self.wfile.write(b'<label for="playlist">Delete first albums from playlist:</label>')
+        self.wfile.write((f"<input type='number' name='firstN' id='firstN' min='1'>\n").encode("utf-8"))
+        self.wfile.write((f"<input type='hidden' name='action' value='delete-first-N'>\n").encode("utf-8"))
+        self.wfile.write((f"<input type='hidden' name='playlist' value='{playlist['id']}'>\n").encode("utf-8"))
+#                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'>\n").encode("utf-8"))
+        self.wfile.write(b"<input type='submit' value='Submit'>")
+        self.wfile.write(b"</form>\n")
+
+
+        self.wfile.write(b"<div class='playlist-view'>")
+        self.wfile.write(b"<div class='album-tracklist'>")
+        self.wfile.write(b"<table>\n")
+        i = 0
+        tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+        select_duplicate(tracks['items'],'','','',False,i)
+        i = i + len(tracks['items'])
+        while tracks['next']:
+            tracks = SpotifyAPI.next(tracks)
+            select_duplicate(tracks['items'],'','','',False,i)
+            i = i + len(tracks['items'])
+        self.wfile.write(b"</table>")
+
+        self.wfile.write(b"</div>")
+        self.wfile.write(b"</div>")
+
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
+
 
 
 if __name__ == '__main__':

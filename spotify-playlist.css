@@ -1,0 +1,131 @@
+* {box-sizing: border-box;}
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.topnav {
+  overflow: hidden;
+  background-color: #e9e9e9;
+}
+
+.topnav a {
+  float: left;
+  display: block;
+  color: black;
+  text-align: center;
+  padding: 14px 16px;
+  text-decoration: none;
+  font-size: 17px;
+}
+
+.topnav a:hover {
+  background-color: #ddd;
+  color: black;
+}
+
+.topnav a.active {
+  background-color: #2196F3;
+  color: white;
+}
+
+.topnav .search-container {
+  float: left;
+}
+
+.topnav input[type=text] {
+  padding: 6px;
+  margin-top: 8px;
+  font-size: 17px;
+  border: none;
+}
+
+.topnav .search-container button {
+  float: right;
+  padding: 6px 10px;
+  margin-top: 8px;
+  margin-right: 16px;
+  background: #ddd;
+  font-size: 17px;
+  border: none;
+  cursor: pointer;
+}
+
+.topnav .search-container button:hover {
+  background: #ccc;
+}
+
+.album-container {
+    border: 3px solid #fff;
+    padding: 20px;
+}
+
+.album-image {
+    width: 25%;
+    float: left;
+    padding: 20px;
+/*    border: 2px solid red;*/
+} 
+.album-header {
+    width: 75%;
+    float: left;
+    padding: 0px;
+/*    border: 2px solid red;*/
+} 
+.album-header .album-details {
+    width: 25%;
+    float: left;
+    padding: 20px;
+/*    border: 2px solid red;*/
+} 
+.album-header .album-actions {
+    width: 75%;
+    float: right;
+    padding: 20px;
+/*    border: 2px solid red;*/
+} 
+.album-container .album-tracklist {
+    width: 75%;
+    float: left;
+    padding: 20px;
+/*    border: 2px solid red;*/
+} 
+
+.album-container .album-tracklist table { width: 100%; }
+.album-container .album-tracklist .track-number { width: 5%; }
+.album-container .album-tracklist .play-count { width: 5%; }
+.album-container .album-tracklist .track-name { width: 25%; }
+.album-container .album-tracklist .artist { width: 15%; }
+.album-container .album-tracklist .album { width: 15%; }
+.album-container .album-tracklist .playlist { width: 15%; }
+.album-container .album-tracklist .track-uri { display: none; }
+
+.playlist-view {
+/*    border: 3px solid #fff;*/
+    padding: 20px;
+}
+
+.playlist-view .album-tracklist {
+    width: 100%;
+    float: left;
+    padding: 20px;
+/*    border: 2px solid red;*/
+} 
+.playlist-view .album-tracklist table { width: 100%; }
+.playlist-view .album-tracklist .track-number { width: 1%; }
+.playlist-view .album-tracklist .play-count { width: 2%; }
+.playlist-view .album-tracklist .track-name { width: 25%; }
+.playlist-viwe .album-tracklist .artist { width: 15%; }
+.playlist-view .album-tracklist .album { width: 23%; }
+.playlist-view .album-tracklist .playlist { width: 33%; }
+.playlist-view .album-tracklist .track-uri { display: none; width: 1%; }
+ 
+.genre-good { color: green; }
+.genre-bad { color: red; }
+.genre-untagged { color: grey; }
+
+.clear {
+    clear: both;
+}
+
