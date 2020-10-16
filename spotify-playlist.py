@@ -7,8 +7,10 @@ from lxml import html
 import requests
 import datetime
 from collections import namedtuple
+from collections.abc import Mapping
 from shutil import copyfile
 from sanitize_filename import sanitize
+from pathlib import Path
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -22,6 +24,8 @@ import pylast
 
 logger = logging.getLogger('myapp')
 logging.basicConfig(level='INFO')
+
+ConfigFolder = Path(".spotify-toolbox")
 
 SpotifyAPI = None
 Args = None
@@ -43,6 +47,11 @@ GenresBad = []
 URLCache = {}
 URLCacheTimeout = 60*60
 
+SpotifyAlbumCache = {}
+SpotifyAlbumCacheTimeout = 60*60
+
+Watchlist = []
+
 def read_URL(url):
     timenow = int(time.time())
     cacheEntry = URLCache.get(url,[-1,None])
@@ -55,6 +64,19 @@ def read_URL(url):
         return data
     else:
 #        print(f"Retrieved {url} from cache")
+        return cacheEntry[1]
+
+def read_SpotifyAlbum(id):
+    timenow = int(time.time())
+    cacheEntry = SpotifyAlbumCache.get(id,[-1,None])
+    if cacheEntry[1] == None or cacheEntry[0] < timenow - SpotifyAlbumCacheTimeout:
+#        print(f"No or expired cache for {id}")
+        album = SpotifyAPI.album(id)
+        SpotifyAlbumCache[id] = [timenow,album]
+        time.sleep(0.1)
+        return album
+    else:
+#        print(f"Retrieved {id} from cache")
         return cacheEntry[1]
 
 def get_args():
@@ -308,7 +330,7 @@ def select_duplicate(results,track_name,artist_name,album_name,ask=True,start_co
     return []
 
 def print_album(count,album,track_count=-1):
-    artists = list_to_comma_separated_string(album['artists'],'name')
+    artists = list_to_comma_separated_string(album['artists'],'name')[0]
     count_source = " "
     if track_count == -1:
         track_count = 0
@@ -573,7 +595,7 @@ def get_results_for_album(artist,album,show_list,prompt_for_choice):
                         track = SpotifyAPI.track(trackuri)
                         print_track(track,i+1)
                 else:
-                    album = SpotifyAPI.album(albumuri)
+                    album = read_SpotifyAlbum(albumuri) #SpotifyAPI.album(albumuri)
                     print_album(ai+1,album)
         return results
 
@@ -961,6 +983,7 @@ def get_tracks_to_import_html_metalstorm_releases_extended(data):
             continue
 
         genre = []
+        art = ""
         lines[i].make_links_absolute("http://www.metalstorm.net/")
         for link in lines[i].iterlinks():
             if "/album.php" in link[2]:
@@ -968,13 +991,17 @@ def get_tracks_to_import_html_metalstorm_releases_extended(data):
                 lines2 = data2.xpath('//*[@id="page-content"]/div[3]/div[1]/div/div[2]/table/tr[2]/td[2]/a/text()')
                 for line2 in lines2:
                     genrename = line2.strip()
-                    if genrename in GenresGood:
-                        thisgenre = ['+',genrename]
-                    elif genrename in GenresBad:
-                        thisgenre = ['-',genrename]
-                    else:
-                        thisgenre = [' ',genrename]
+                    thisgenre = genrename
+#                    if genrename in GenresGood:
+#                        thisgenre = ['+',genrename]
+#                    elif genrename in GenresBad:
+#                        thisgenre = ['-',genrename]
+#                    else:
+#                        thisgenre = [' ',genrename]
                     genre.append(thisgenre)
+                artlink = data2.xpath('//*[@id="page-content"]/div[3]/div[1]/div/div[1]/a/img/@src')
+                if len(artlink) > 0:
+                    art = "http://www.metalstorm.net" + artlink[0]
 
         artist = line_text.partition(" - ")[0].strip()
         album = line_text.partition(" - ")[2].strip()
@@ -990,7 +1017,7 @@ def get_tracks_to_import_html_metalstorm_releases_extended(data):
 
 #        print(f"Read {artist},{album},{release_date},{genre}")
 #        print("(%s;%s)" % (artist, album))
-        track = ['*', artist, album, release_date, genre]
+        track = { 'track': '*', 'artist': artist, 'album': album, 'release_date': release_date, 'genres': genre, 'art': art }
         tracks.append(track)
 
     return tracks
@@ -1220,7 +1247,7 @@ def init_last_fm_recent_cache():
 def init_last_fm_recent_cache_from_file():
     last_timestamp = None
     try:
-        with open('lastfm_cache.txt','r') as cachefile:
+        with open(ConfigFolder / 'lastfm_cache.txt','r') as cachefile:
             last_timestamp = cachefile.readline().strip()
             while True:
                 line = cachefile.readline()
@@ -1242,11 +1269,11 @@ def init_last_fm_recent_cache_from_file():
 
 def init_last_fm_recent_cache_to_file(timestamp):
     try:
-        copyfile('lastfm_cache.txt','lastfm_cache.bak')
+        copyfile(ConfigFolder / 'lastfm_cache.txt',ConfigFolder / 'lastfm_cache.bak')
     except FileNotFoundError:
         pass
     try:
-        with open('lastfm_cache.txt','w') as cachefile:
+        with open(ConfigFolder / 'lastfm_cache.txt','w') as cachefile:
             cachefile.write(f"{timestamp}\n")
             for entry in LastFMRecentTrackCache:
                 line = f"{entry.album};; {entry.artist};; {entry.track};; {LastFMRecentTrackCache[entry]}\n"
@@ -1255,7 +1282,7 @@ def init_last_fm_recent_cache_to_file(timestamp):
         print(f"Wrote {len(LastFMRecentTrackCache)} entries to LastFM cache file")
     except:
         print("Error writing cache file, restoring backup")
-        copyfile('lastfm_cache.bak','lastfm_cache.txt')
+        copyfile(ConfigFolder / 'lastfm_cache.bak',ConfigFolder / 'lastfm_cache.txt')
 
     return None
 
@@ -1301,7 +1328,7 @@ def get_playcount_str(artist,album,track,uri):
 
 def init_search_overrides():
     try:
-        with open('overrides.txt','r') as overridesfile:
+        with open(ConfigFolder / 'overrides.txt','r') as overridesfile:
             for line in overridesfile:
                 line = line.strip()
                 data = line.split(';; ')
@@ -1394,7 +1421,7 @@ def init_playlist_cache():
 
 def init_playlist_cache_from_file():
     try:
-        with open('playlist_cache.txt','r') as cachefile:
+        with open(ConfigFolder / 'playlist_cache.txt','r') as cachefile:
             for line in cachefile:
                 line = line.strip()
                 data = line.split(';; ')
@@ -1410,12 +1437,12 @@ def init_playlist_cache_from_file():
 
 def init_playlist_cache_to_file():
     try:
-        copyfile('playlist_cache.txt','playlist_cache.bak')
+        copyfile(ConfigFolder / 'playlist_cache.txt',ConfigFolder / 'playlist_cache.bak')
     except FileNotFoundError:
         pass
     try:
         count = 0
-        with open('playlist_cache.txt','w') as cachefile:
+        with open(ConfigFolder / 'playlist_cache.txt','w') as cachefile:
             for entry in PlaylistDetailsCache:
                 playlist = PlaylistDetailsCache[entry]
                 if not playlist['active']:
@@ -1430,7 +1457,7 @@ def init_playlist_cache_to_file():
         print(f"Wrote {count} entries to playlist details cache file.")
     except:
         print("Error writing playlist details cache file, restoring backup")
-        copyfile('playlist_cache.bak','playlist_cache.txt')
+        copyfile(ConfigFolder / 'playlist_cache.bak',ConfigFolder / 'playlist_cache.txt')
 
     return None
 
@@ -1438,7 +1465,7 @@ def init_genre_cache_from_file():
     GenresGood.clear()
     GenresBad.clear()
     try:
-        with open('genres.txt','r') as cachefile:
+        with open(ConfigFolder / 'genres.txt','r') as cachefile:
             for line in cachefile:
                 line = line.strip()
                 if len(line) > 2:
@@ -1453,24 +1480,80 @@ def init_genre_cache_from_file():
 
 def init_genre_cache_to_file():
     try:
-        copyfile('genres.txt','genres.bak')
+        copyfile(ConfigFolder / 'genres.txt',ConfigFolder / 'genres.bak')
     except FileNotFoundError:
         pass
     try:
-        with open('genres.txt','w') as cachefile:
+        with open(ConfigFolder / 'genres.txt','w') as cachefile:
             for entry in GenresGood:
-                line = f"+{entry}\n" 
+                line = f"+{entry}\n"
                 cachefile.write(line)
             for entry in GenresBad:
-                line = f"-{entry}\n" 
+                line = f"-{entry}\n"
                 cachefile.write(line)
 
         print(f"Wrote {len(GenresGood)+len(GenresBad)} entries to genre file.")
     except:
         print("Error writing genre file, restoring backup")
-        copyfile('genre.bak','genre.txt')
+        copyfile(ConfigFolder / 'genre.bak',ConfigFolder / 'genre.txt')
 
     return None
+
+def init_watchlist_from_file():
+    Watchlist.clear()
+    try:
+        with open(ConfigFolder / 'watchlist.txt','r') as cachefile:
+            for line in cachefile:
+                line = line.strip()
+                data = line.split(';; ')
+                if len(data) >= 6:
+                    entry = { 'track': data[0], 'artist': data[1], 'album': data[2], 'release_date': data[3], 'genres': data[4].split(','), 'art': data[5] }
+                    Watchlist.append(entry)
+#                    pprint.pprint(entry)
+    except FileNotFoundError:
+        return None
+
+    print(f"Read {len(Watchlist)} entries from watchlist file.")
+
+def init_watchlist_to_file():
+    try:
+        copyfile(ConfigFolder / 'watchlist.txt',ConfigFolder / 'watchlist.bak')
+    except FileNotFoundError:
+        pass
+    try:
+        with open(ConfigFolder / 'watchlist.txt','w') as cachefile:
+            for entry in Watchlist:
+                line = f"{entry['track']};; {entry['artist']};; {entry['album']};; {entry['release_date']};; {','.join(entry['genres'])};; {entry['art']};; <end>\n"
+                cachefile.write(line)
+
+        print(f"Wrote {len(Watchlist)} entries to watchlist file.")
+    except:
+        print("Error writing watchlist file, restoring backup")
+        copyfile(ConfigFolder / 'watchlist.bak',ConfigFolder / 'watchlist.txt')
+
+    return None
+
+def in_watchlist(first_arg,artist=None,album=None):
+#    pprint.pprint(first_arg)
+    entryIn = {}
+    if isinstance(first_arg, Mapping):
+        entryIn = first_arg
+    else:
+        entryIn = { 'track': first_arg, 'artist': artist, 'album': album }
+    for entry in Watchlist:
+        if entry['track'].lower() == entryIn['track'].lower() and entry['artist'].lower() == entryIn['artist'].lower() and entry['album'].lower() == entryIn['album'].lower():
+            return entry
+    return None
+
+def add_to_watchlist(entry):
+    Watchlist.append(entry)
+
+def remove_from_watchlist(entryIn):
+    entry = in_watchlist(entryIn)
+    if entry:
+        Watchlist.remove(entry)
+        return True
+    return False
 
 def write_track_to_file(track,file,i):
     track_name = track['name']
@@ -1481,7 +1564,7 @@ def write_track_to_file(track,file,i):
     if track['album']:
         album_name = track['album']['name']
         album_uri = track['album']['uri']
-        artists = list_to_comma_separated_string(track['album']['artists'],'name')
+        artists = list_to_comma_separated_string(track['album']['artists'],'name')[0]
     file.write(f'"{track_name}","{artists}","{album_name}",{i},"{track_uri}","{album_uri}"\n')
 
 def export_playlist(playlist):
@@ -1531,7 +1614,7 @@ def main():
     last_fm_client_secret = 'your-last-fm-client-secret'
     last_fm_username = 'your-last-fm-username'
 
-    with open('credentials.txt','r') as credfile:
+    with open(ConfigFolder / 'credentials.txt','r') as credfile:
         client_id = credfile.readline().strip()
         client_secret = credfile.readline().strip()
         username = credfile.readline().strip()
@@ -1540,8 +1623,8 @@ def main():
         last_fm_username = credfile.readline().strip()
 
     SpotifyAPI = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
-#    SpotifyAPI.trace = True
-    SpotifyAPI.trace = False
+    SpotifyAPI.trace = True
+#    SpotifyAPI.trace = False
 
     user_id = SpotifyAPI.me()['id']
 
@@ -1551,6 +1634,8 @@ def main():
     init_spotify_recent_cache()
 
     init_genre_cache_from_file()
+
+    init_watchlist_from_file()
 
     if Args.last_fm and last_fm_client_id != "" and last_fm_client_secret != "" and last_fm_username != "":
         global LastFM
@@ -1712,6 +1797,10 @@ class web_server(BaseHTTPRequestHandler):
             self.do_GET_add_album_to_playlist()
         elif self.parsed_path.path == "/tag_genre":
             self.do_GET_tag_genre()
+        elif self.parsed_path.path == "/add_album_to_watchlist":
+            self.do_GET_add_album_to_watchlist()
+        elif self.parsed_path.path == "/remove_album_from_watchlist":
+            self.do_GET_remove_album_from_watchlist()
         else:
             # Things that do
             init_playlist_cache()
@@ -1728,6 +1817,8 @@ class web_server(BaseHTTPRequestHandler):
                 self.do_GET_playlists()
             elif self.parsed_path.path == "/recent":
                 self.do_GET_recent()
+            elif self.parsed_path.path == "/watchlist":
+                self.do_GET_watchlist()
             else:
                 self.do_GET_error()
         WebOutput = None
@@ -1759,54 +1850,110 @@ class web_server(BaseHTTPRequestHandler):
                     message = message[2:-1]
                 self.wfile.write((f"<h3>{message}</h3>").encode("utf-8"))
 
-    def addAlbum(self,album,release_date,genres):
-        user_id = SpotifyAPI.me()['id']
-
+    def addAlbum_Container_Start(self):
         self.wfile.write(b"<div class='album-container'>")
+
+    def addAlbum_Art(self,url):
         self.wfile.write(b"<div class='album-image'>")
-        if len(album['images']) > 0:
-            self.wfile.write((f"<img src='{album['images'][0]['url']}' width='100%' />").encode("utf-8"))
+        if url != "":
+            self.wfile.write((f"<img src='{url}' width='100%' />").encode("utf-8"))
         self.wfile.write(b"</div>")
 
+    def addAlbum_Header_Start(self):
         self.wfile.write(b"<div class='album-header'>")
+
+    def addAlbum_Details(self,release_date,genres):
         self.wfile.write(b"<div class='album-details'>")
-        self.wfile.write((f"<div>Release date: {release_date}</div>\n").encode("utf-8"))
-        self.wfile.write((f"<div>Genre: ").encode("utf-8"))
+        if release_date != "":
+            self.wfile.write((f"<div>Release date: {release_date}</div>\n").encode("utf-8"))
         goodGenres = []
         badGenres = []
         untaggedGenres = []
-        for genre in genres:
-            if genre[0] == '+':
-                self.wfile.write((f"<span class='genre-good'>{genre[1]}</span><br/>").encode("utf-8"))
-                goodGenres.append(genre[1])
-            elif genre[0] == '-':
-                self.wfile.write((f"<span class='genre-bad'>{genre[1]}</span><br/>").encode("utf-8"))
-                badGenres.append(genre[1])
-            else:
-                self.wfile.write((f"<span class='genre-untagged'>{genre[1]}</span><br/>").encode("utf-8"))
-                untaggedGenres.append(genre[1])
+        if len(genres) > 0 and genres[0].strip() != "":
+            self.wfile.write((f"<div>Genre: ").encode("utf-8"))
+            for genre in genres:
+                if genre in GenresGood:
+                    self.wfile.write((f"<span class='genre-good'>{genre}</span><br/>").encode("utf-8"))
+                    goodGenres.append(genre)
+                elif genre in GenresBad:
+                    self.wfile.write((f"<span class='genre-bad'>{genre}</span><br/>").encode("utf-8"))
+                    badGenres.append(genre)
+                else:
+                    self.wfile.write((f"<span class='genre-untagged'>{genre}</span><br/>").encode("utf-8"))
+                    untaggedGenres.append(genre)
 
-        self.wfile.write(b"</div>")
+            self.wfile.write(b"</div>")
         self.wfile.write(b"</div>\n")
 
+        return [goodGenres,badGenres,untaggedGenres]
+
+    def addAlbum_Actions(self,album,goodGenres,badGenres,untaggedGenres):
         self.wfile.write(b"<div class='album-actions'>")
 
-        self.wfile.write((f"<form action='/add_album_to_playlist'>\n").encode("utf-8"))
-        self.wfile.write(b'<label for="playlist">Add album to playlist:</label>')
-        self.wfile.write(b'<select name="playlist" id="playlist">\n')
-        for playlist_id in PlaylistDetailsCache:
-            entry = PlaylistDetailsCache[playlist_id]
-            if entry['owner_id'] != user_id:
-                continue;
-            selected = ""
-            if Args.server_default_playlist == entry['name']:
-                selected = "selected"
-            self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
-        self.wfile.write(b"</select>\n")
-        self.wfile.write(b"<input type='submit' value='Submit'>")
-        self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
-        self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
-        self.wfile.write(b"</form>")
+        if 'uri' in album:
+            user_id = SpotifyAPI.me()['id']
+
+            artists = list_to_comma_separated_string(album['artists'],'name')[0]
+
+            if 'watchlist_entry' in album:
+                self.wfile.write(b'<form action="/remove_album_from_watchlist">')
+                self.wfile.write(b'<label for="remove_album_from_watchlist">Remove from watchlist:</label>')
+                self.wfile.write(b"<input type='submit' value='Submit'>")
+                self.wfile.write((f"<input type='hidden' name='artist' value='{album['watchlist_entry']['artist']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='album' value='{album['watchlist_entry']['album']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+                self.wfile.write(b'</form>')
+                self.wfile.write((f"<form action='/add_album_to_playlist'>\n").encode("utf-8"))
+                self.wfile.write(b'<label for="playlist">Move from watchlist to playlist:</label>')
+            else:
+                self.wfile.write((f"<form action='/add_album_to_playlist'>\n").encode("utf-8"))
+                self.wfile.write(b'<label for="playlist">Add album to playlist:</label>')
+            self.wfile.write(b'<select name="playlist" id="playlist">\n')
+            for playlist_id in PlaylistDetailsCache:
+                entry = PlaylistDetailsCache[playlist_id]
+                if entry['owner_id'] != user_id:
+                    continue
+                if entry['active'] != True:
+                    continue
+                selected = ""
+                if Args.server_default_playlist == entry['name']:
+                    selected = "selected"
+                self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
+            self.wfile.write(b"</select>\n")
+            self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
+            if 'watchlist_entry' in album:
+                self.wfile.write((f"<input type='hidden' name='watchlist_artist' value='{album['watchlist_entry']['artist']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='watchlist_album' value='{album['watchlist_entry']['album']}'</input>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+            self.wfile.write(b"</form>")
+        else:
+            bandcampsearch = quote_plus(f"{album['artist']} {album['name']}")
+            bandcamplink = f"<div>Not found in Spotify: <a href='https://bandcamp.com/search?q={bandcampsearch}'>Search Bandcamp</a></div>\n"
+            self.wfile.write(bandcamplink.encode("utf-8"))
+            entry = { 'track': '*', 'artist': album['artist'], 'album': album['name'] }
+            if 'watchlist_entry' in album:
+                entry = { 'track': '*', 'artist': album['watchlist_entry']['artist'], 'album': album['watchlist_entry']['album'] }
+            if in_watchlist(entry):
+                self.wfile.write(b'<form action="/remove_album_from_watchlist">')
+                self.wfile.write(b'<label for="remove_album_from_watchlist">Remove from watchlist:</label>')
+                self.wfile.write(b"<input type='submit' value='Submit'>")
+                self.wfile.write((f"<input type='hidden' name='artist' value='{entry['artist']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='album' value='{entry['album']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+                self.wfile.write(b'</form>')
+            else:
+                genres = ",".join(album['genres'])
+                self.wfile.write(b'<form action="/add_album_to_watchlist">')
+                self.wfile.write(b'<label for="add_album_to_watchlist">Add to watchlist:</label>')
+                self.wfile.write(b"<input type='submit' value='Submit'>")
+                self.wfile.write((f"<input type='hidden' name='artist' value='{album['artist']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='album' value='{album['name']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='release_date' value='{album['release_date']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='genre' value='{genres}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='art' value='{album['art']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+                self.wfile.write(b'</form>')
 
         if len(badGenres) + len(untaggedGenres) > 0:
             self.wfile.write((f"<form action='/tag_genre'>\n").encode("utf-8"))
@@ -1840,7 +1987,7 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write(b'<select name="tag_genre_bad" id="tag_genre_bad">\n')
             for genre in untaggedGenres:
                 self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
-            for genre in badGenres:
+            for genre in goodGenres:
                 self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
@@ -1848,8 +1995,11 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write(b"</form>")
 
         self.wfile.write(b"</div>")
+
+    def addAlbum_Header_End(self):
         self.wfile.write(b"</div>")
 
+    def addAlbum_Tracklist(self,album):
         self.wfile.write(b"<div class='album-tracklist'>")
         self.wfile.write(b"<table>")
         for i,track in enumerate(SpotifyAPI.album_tracks(album['id'])['items']):
@@ -1859,9 +2009,47 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"</table>")
 
         self.wfile.write(b"</div>")
+
+    def addAlbum_Container_End(self):
         self.wfile.write(b"</div>")
 
         self.wfile.write(b"<div class='clear'/>")
+
+    def addMissingAlbum(self,album):
+        self.addAlbum_Container_Start()
+        self.addAlbum_Art(album['art'])
+
+        self.addAlbum_Header_Start()
+        goodGenres, badGenres, untaggedGenres = self.addAlbum_Details(album['release_date'],album['genres'])
+        album['name'] = album['album']
+        self.addAlbum_Actions(album,goodGenres,badGenres,untaggedGenres)
+        self.addAlbum_Header_End()
+
+        self.addAlbum_Container_End()
+
+    def chooseAlbumArt(self,images,target_width):
+        best_error = 0
+        best_url = ""
+        for image in images:
+            error = abs(image['width']-target_width)
+            if best_url == "" or error < best_error:
+                best_url = image['url']
+                best_error = error
+        return best_url
+
+    def addAlbum(self,album,release_date='',genres=[]):
+        self.addAlbum_Container_Start()
+        if len(album['images']) > 0:
+            self.addAlbum_Art(self.chooseAlbumArt(album['images'],300))
+
+        self.addAlbum_Header_Start()
+        goodGenres, badGenres, untaggedGenres = self.addAlbum_Details(release_date,genres)
+        self.addAlbum_Actions(album,goodGenres,badGenres,untaggedGenres)
+        self.addAlbum_Header_End()
+
+        self.addAlbum_Tracklist(album)
+
+        self.addAlbum_Container_End()
 
     def getResults(self,track_name,artist,album):
         self.wfile.write((f"<h2>Results for {artist},{album}</h2>\n").encode("utf-8"))
@@ -1896,6 +2084,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b'<li><a href="/releases">MetalStorm New Releases</a></li>\n')
         self.wfile.write(b'<li><a href="/playlists">Playlists</a></li>\n')
         self.wfile.write(b'<li><a href="/recent">Recent Tracks</a></li>\n')
+        self.wfile.write(b'<li><a href="/watchlist">Watchlist</a></li>\n')
         self.wfile.write(b"</ul>\n")
 
     def do_GET_search(self):
@@ -1996,20 +2185,52 @@ class web_server(BaseHTTPRequestHandler):
 
         for release in tracks_to_import:
             self.wfile.write(b"<hr/>")
-            results = self.getResults('*',release[1],release[2])
+            results = self.getResults('*',release['artist'],release['album'])
+            if len(results) == 0:
+                self.addMissingAlbum(release)
+            else:
+                for album in results:
+                    self.addAlbum(album,release['release_date'],release['genres'])
 
-            for album in results:
-                self.addAlbum(album,release[3],release[4])
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
+
+    def do_GET_watchlist(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=UTF-8')
+        self.end_headers()
+        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
+        self.wfile.write(b"<html>\n")
+        self.wfile.write(b"<head>\n")
+        self.addCSS()
+        self.wfile.write(b"</head>\n")
+
+        self.wfile.write(b"<body>\n")
+        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - Watchlist</h1>\n")
+
+        params = parse_qs(self.parsed_path.query)
+
+        self.showMessage(params)
+
+        for release in Watchlist:
+            self.wfile.write(b"<hr/>")
+            results = self.getResults('*',release['artist'],release['album'])
+            if len(results) == 0:
+                self.addMissingAlbum(release)
+            else:
+                for album in results:
+                    album['watchlist_entry'] = release
+                    self.addAlbum(album,release['release_date'],release['genres'])
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
 
     def do_GET_add_album_to_playlist(self):
         params = parse_qs(self.parsed_path.query)
-#        pprint.pprint(params)
 
+        message = ""
         if 'album' in params and 'playlist' in params:
-            album = SpotifyAPI.album(params['album'][0])
+            album = read_SpotifyAlbum(params['album'][0]) #SpotifyAPI.album(params['album'][0])
             playlist = SpotifyAPI.playlist(params['playlist'][0])
 
             tracks = SpotifyAPI.album_tracks(album['id'])
@@ -2022,14 +2243,77 @@ class web_server(BaseHTTPRequestHandler):
                     track_ids.append(track['id'])
             SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
 
-    #        PlaylistDetailsCache[playlist['id']]['snapshot_id'] = ''
-    #        init_playlist_cache_playlist(playlist)
-    #        init_playlist_cache_purge_tracklist_playlist(playlist['id'])
-    #        init_playlist_cache_process_playlist(playlist['id'])
+            message = f"Added {len(track_ids)} tracks to playlist {playlist['name']}."
 
-            message = f"Added {len(track_ids)} tracks to playlist {playlist['name']}"
+            if 'watchlist_artist' in params and 'watchlist_album' in params:
+                entry = {'track': '*', 'artist': params['watchlist_artist'][0], 'album': params['watchlist_album'][0] }
+                if in_watchlist(entry):
+                    init_watchlist_to_file()
+                    if remove_from_watchlist(entry):
+                        message = message + f"\nRemoved {entry['album']} by {entry['artist']} from watchlist."
+                    else:
+                        message = message + f"\nFailed to remove {entry['album']} by {entry['artist']} from watchlist."
         else:
             message = "Error in parameters"
+
+        message = message.encode('latin-1','xmlcharrefreplace')
+        message = quote_plus(message)
+
+        self.send_response(302)
+        if 'return' in params:
+            self.send_header('Location', f"{params['return'][0]}?message={message}")
+        else:
+            self.send_header('Location', f"/?message={message}")
+        self.end_headers()
+
+    def do_GET_add_album_to_watchlist(self):
+        params = parse_qs(self.parsed_path.query)
+
+        if 'album' in params and 'artist' in params:
+            entry = { 'track': '*', 'artist': params['artist'][0], 'album': params['album'][0], 'release_date': "", 'genres': {}, 'art': "" }
+            if 'release_date' in params:
+                entry['release_date'] = params['release_date'][0]
+            if 'genre' in params:
+                entry['genres'] = params['genre'][0].split(",")
+            if 'art' in params:
+                entry['art'] = params['art'][0]
+
+            add_to_watchlist(entry)
+            init_watchlist_to_file()
+
+            message = f"Added {entry['artist']} - {entry['album']} to watchlist"
+        else:
+            message = "Error in parameters"
+
+        message = message.encode('latin-1','xmlcharrefreplace')
+        message = quote_plus(message)
+
+        self.send_response(302)
+        if 'return' in params:
+            self.send_header('Location', f"{params['return'][0]}?message={message}")
+        else:
+            self.send_header('Location', f"/?message={message}")
+        self.end_headers()
+
+    def do_GET_remove_album_from_watchlist(self):
+        params = parse_qs(self.parsed_path.query)
+
+        message = ""
+        if 'album' in params and 'artist' in params:
+            entry = { 'track': '*', 'artist': params['artist'][0], 'album': params['album'][0], 'release_date': "", 'genres': {}, 'art': "" }
+            if in_watchlist(entry):
+                if remove_from_watchlist(entry):
+                    init_watchlist_to_file()
+                    message = f"Removed {entry['album']} by {entry['artist']} from watchlist."
+                else:
+                    message = f"Failed to remove {entry['album']} by {entry['artist']} from watchlist."
+            else:
+                message = f"{entry['artist']} - {entry['album']} not in watchlist"
+        else:
+            message = "Error in parameters"
+
+        message = message.encode('latin-1','xmlcharrefreplace')
+        message = quote_plus(message)
 
         self.send_response(302)
         if 'return' in params:
@@ -2072,6 +2356,9 @@ class web_server(BaseHTTPRequestHandler):
                     GenresBad.append(tag)
 
         init_genre_cache_to_file()
+
+        message = message.encode('latin-1','xmlcharrefreplace')
+        message = quote_plus(message)
 
         self.send_response(302)
         if 'return' in params:

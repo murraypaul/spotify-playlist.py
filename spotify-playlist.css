@@ -1,7 +1,12 @@
 /*@import url("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css");*/
 @import url("https://use.fontawesome.com/releases/v5.15.1/css/all.css");
 
-* {box-sizing: border-box;}
+* {
+  box-sizing: border-box;
+    background-color: #222;
+    color: #e6e6e6;
+    border-color: #e6e6e6;
+}
 
 body {
   margin: 0;
@@ -60,7 +65,7 @@ body {
 }
 
 .album-container {
-    border: 3px solid #fff;
+/*    border: 3px solid #fff;*/
     padding: 20px;
 }
 
