@@ -1819,6 +1819,10 @@ class web_server(BaseHTTPRequestHandler):
                 self.do_GET_recent()
             elif self.parsed_path.path == "/watchlist":
                 self.do_GET_watchlist()
+            elif self.parsed_path.path == "/watchlist_match_only":
+                self.do_GET_watchlist(True,True)
+            elif self.parsed_path.path == "/watchlist_no_match":
+                self.do_GET_watchlist(True,False)
             else:
                 self.do_GET_error()
         WebOutput = None
@@ -1899,8 +1903,8 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write(b'<form action="/remove_album_from_watchlist">')
                 self.wfile.write(b'<label for="remove_album_from_watchlist">Remove from watchlist:</label>')
                 self.wfile.write(b"<input type='submit' value='Submit'>")
-                self.wfile.write((f"<input type='hidden' name='artist' value='{album['watchlist_entry']['artist']}'</input>\n").encode("utf-8"))
-                self.wfile.write((f"<input type='hidden' name='album' value='{album['watchlist_entry']['album']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(album['watchlist_entry']['artist'])}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(album['watchlist_entry']['album'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
                 self.wfile.write(b'</form>')
                 self.wfile.write((f"<form action='/add_album_to_playlist'>\n").encode("utf-8"))
@@ -1923,8 +1927,8 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write(b"<input type='submit' value='Submit'>")
             self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
             if 'watchlist_entry' in album:
-                self.wfile.write((f"<input type='hidden' name='watchlist_artist' value='{album['watchlist_entry']['artist']}'</input>\n").encode("utf-8"))
-                self.wfile.write((f"<input type='hidden' name='watchlist_album' value='{album['watchlist_entry']['album']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='watchlist_artist' value='{quote_plus(album['watchlist_entry']['artist'])}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='watchlist_album' value='{quote_plus(album['watchlist_entry']['album'])}'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
         else:
@@ -1938,8 +1942,8 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write(b'<form action="/remove_album_from_watchlist">')
                 self.wfile.write(b'<label for="remove_album_from_watchlist">Remove from watchlist:</label>')
                 self.wfile.write(b"<input type='submit' value='Submit'>")
-                self.wfile.write((f"<input type='hidden' name='artist' value='{entry['artist']}'</input>\n").encode("utf-8"))
-                self.wfile.write((f"<input type='hidden' name='album' value='{entry['album']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(entry['artist'])}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(entry['album'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
                 self.wfile.write(b'</form>')
             else:
@@ -1947,8 +1951,8 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write(b'<form action="/add_album_to_watchlist">')
                 self.wfile.write(b'<label for="add_album_to_watchlist">Add to watchlist:</label>')
                 self.wfile.write(b"<input type='submit' value='Submit'>")
-                self.wfile.write((f"<input type='hidden' name='artist' value='{album['artist']}'</input>\n").encode("utf-8"))
-                self.wfile.write((f"<input type='hidden' name='album' value='{album['name']}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(album['artist'])}'</input>\n").encode("utf-8"))
+                self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(album['name'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='release_date' value='{album['release_date']}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='genre' value='{genres}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='art' value='{album['art']}'</input>\n").encode("utf-8"))
@@ -2052,8 +2056,6 @@ class web_server(BaseHTTPRequestHandler):
         self.addAlbum_Container_End()
 
     def getResults(self,track_name,artist,album):
-        self.wfile.write((f"<h2>Results for {artist},{album}</h2>\n").encode("utf-8"))
-
         results = get_search_exact('*',artist,album)
 
         # If not found, try various changes
@@ -2085,6 +2087,8 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b'<li><a href="/playlists">Playlists</a></li>\n')
         self.wfile.write(b'<li><a href="/recent">Recent Tracks</a></li>\n')
         self.wfile.write(b'<li><a href="/watchlist">Watchlist</a></li>\n')
+        self.wfile.write(b'<li><a href="/watchlist_match_only">Watchlist (only matched)</a></li>\n')
+        self.wfile.write(b'<li><a href="/watchlist_no_match">Watchlist (only unmatched)</a></li>\n')
         self.wfile.write(b"</ul>\n")
 
     def do_GET_search(self):
@@ -2115,6 +2119,7 @@ class web_server(BaseHTTPRequestHandler):
                 artist = data[0].strip()
                 album = data[1].strip()
 
+                self.wfile.write((f"<h2>Results for {artist},{album}</h2>\n").encode("utf-8"))
                 results = self.getResults('*',artist,album)
 
                 for album in results:
@@ -2183,8 +2188,14 @@ class web_server(BaseHTTPRequestHandler):
         data = read_URL("http://www.metalstorm.net/events/new_releases.php")
         tracks_to_import = get_tracks_to_import_html_metalstorm_releases_extended(data)
 
+        last_release_date = ""
         for release in tracks_to_import:
-            self.wfile.write(b"<hr/>")
+            if release['release_date'] != last_release_date:
+                self.wfile.write(b"<hr/>")
+                self.wfile.write((f"<h2>Releases for {release['release_date']}</h2>\n").encode("utf-8"))
+                self.wfile.write(b"<hr/>")
+                last_release_date = release['release_date']
+            self.wfile.write((f"<h3>Results for {release['artist']},{release['album']}</h3>\n").encode("utf-8"))
             results = self.getResults('*',release['artist'],release['album'])
             if len(results) == 0:
                 self.addMissingAlbum(release)
@@ -2195,7 +2206,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
 
-    def do_GET_watchlist(self):
+    def do_GET_watchlist(self,filter=False,matched_only=True):
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=UTF-8')
         self.end_headers()
@@ -2213,14 +2224,19 @@ class web_server(BaseHTTPRequestHandler):
         self.showMessage(params)
 
         for release in Watchlist:
-            self.wfile.write(b"<hr/>")
             results = self.getResults('*',release['artist'],release['album'])
             if len(results) == 0:
-                self.addMissingAlbum(release)
+                if not (filter and matched_only):
+                    self.wfile.write(b"<hr/>")
+                    self.wfile.write((f"<h2>Results for {release['artist']},{release['album']}</h2>\n").encode("utf-8"))
+                    self.addMissingAlbum(release)
             else:
-                for album in results:
-                    album['watchlist_entry'] = release
-                    self.addAlbum(album,release['release_date'],release['genres'])
+                if not (filter and not matched_only):
+                    self.wfile.write(b"<hr/>")
+                    self.wfile.write((f"<h2>Results for {release['artist']},{release['album']}</h2>\n").encode("utf-8"))
+                    for album in results:
+                        album['watchlist_entry'] = release
+                        self.addAlbum(album,release['release_date'],release['genres'])
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
@@ -2270,7 +2286,7 @@ class web_server(BaseHTTPRequestHandler):
         params = parse_qs(self.parsed_path.query)
 
         if 'album' in params and 'artist' in params:
-            entry = { 'track': '*', 'artist': params['artist'][0], 'album': params['album'][0], 'release_date': "", 'genres': {}, 'art': "" }
+            entry = { 'track': '*', 'artist': unquote_plus(params['artist'][0]), 'album': unquote_plus(params['album'][0]), 'release_date': "", 'genres': {}, 'art': "" }
             if 'release_date' in params:
                 entry['release_date'] = params['release_date'][0]
             if 'genre' in params:
@@ -2300,7 +2316,7 @@ class web_server(BaseHTTPRequestHandler):
 
         message = ""
         if 'album' in params and 'artist' in params:
-            entry = { 'track': '*', 'artist': params['artist'][0], 'album': params['album'][0], 'release_date': "", 'genres': {}, 'art': "" }
+            entry = { 'track': '*', 'artist': unquote_plus(params['artist'][0]), 'album': unquote_plus(params['album'][0]), 'release_date': "", 'genres': {}, 'art': "" }
             if in_watchlist(entry):
                 if remove_from_watchlist(entry):
                     init_watchlist_to_file()
