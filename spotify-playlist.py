@@ -11,7 +11,8 @@ from collections.abc import Mapping
 from shutil import copyfile
 from sanitize_filename import sanitize
 from pathlib import Path
-
+import random
+#
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
@@ -221,7 +222,8 @@ def print_track(result,i,album=None):
         album = result['album']
     album_name = album['name']
     album_uri = album['uri']
-    album_link = 'http://open.spotify.com/' + album_uri[8:].replace(':','/')
+    if album_uri != None:
+        album_link = 'http://open.spotify.com/' + album_uri[8:].replace(':','/')
     duration_ms = result['duration_ms']
     duration_min = duration_ms / 60000
     duration_totalsec = duration_ms / 1000
@@ -272,9 +274,9 @@ def print_track(result,i,album=None):
                     playlist,
                     album['album_type'],
                     explicit,
-                    album['release_date'][0:4],
+                    album['release_date'][0:4] if album['release_date'] is not None else "",
                     result['track_number'],
-                    album['total_tracks'],
+                    album['total_tracks'] if 'total_tracks' in album else 0,
                     duration_min,
                     duration_sec,
                     popularity,
@@ -298,9 +300,9 @@ def print_track(result,i,album=None):
                     album_name,
                     album['album_type'],
                     explicit,
-                    album['release_date'][0:4],
+                    album['release_date'][0:4] if album['release_date'] is not None else "",
                     result['track_number'],
-                    album['total_tracks'],
+                    album['total_tracks'] if 'total_tracks' in album else 0,
                     duration_min,
                     duration_sec,
                     popularity,
@@ -346,7 +348,7 @@ def print_album(count,album,track_count=-1):
         album['name'],
         album['album_type'],
         album['release_date'][0:4],
-        album['total_tracks'],
+        album['total_tracks'] if 'total_tracks' in album else 0,
         track_count,
         album['uri'],
         count_source
@@ -1600,6 +1602,35 @@ def export_playlists():
             if playlist['name'] == Args.playlist or not Args.playlist:
                 export_playlist(playlist)
 
+def recommend_from_playlist(playlist):
+    my_tracks = []
+    tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+    for track in tracks['items']:
+        my_tracks.append(track)
+    while tracks['next']:
+        tracks = SpotifyAPI.next(tracks)
+        for track in tracks['items']:
+            my_tracks.append(track)
+
+    total_tracks = len(my_tracks)
+
+    recommended_tracks = {}
+
+    for i in range(total_tracks*5):
+        seed_tracks = list(my_tracks[i]['track']['id'] for i in random.sample(range(total_tracks),5))
+        one_recommendation = SpotifyAPI.recommendations(seed_tracks=seed_tracks)
+        time.sleep(0.1)
+        for track in one_recommendation['tracks']:
+            if track['id'] in recommended_tracks:
+                recommended_tracks[track['id']][0] = recommended_tracks[track['id']][0] + 1
+            else:
+                recommended_tracks[track['id']] = [1, track]
+
+    print("Recommendations:")
+#    pprint.pprint(recommended_tracks)
+    for track_id, info in sorted(recommended_tracks.items(), key=lambda item: -item[1][0]):
+        print(f"{info[0]}: {info[1]['name']} from {info[1]['album']['name']}")
+
 def main():
     global Args
     global SpotifyAPI
@@ -1768,6 +1799,17 @@ def main():
                 elif Args.genre:
                     tracks = SpotifyAPI.recommendations(seed_genres=[Args.genre])
                     process_tracks(tracks['tracks'])
+                elif Args.playlist:
+                    playlists = SpotifyAPI.user_playlists(user_id)
+                    for playlist in playlists['items']:
+                        if playlist['name'] == Args.playlist:
+                            recommend_from_playlist(playlist)
+                    while playlists['next']:
+                        playlists = SpotifyAPI.next(playlists)
+                        for playlist in playlists['items']:
+                            if playlist['name'] == Args.playlist:
+                                recommend_from_playlist(playlist)
+
     elif Args.export:
         export_playlists()
     elif Args.query:
@@ -1786,45 +1828,50 @@ class web_server(BaseHTTPRequestHandler):
         global WebOutput
         WebOutput = self
         self.parsed_path = urlparse(self.path)
+        params = parse_qs(self.parsed_path.query)
+
         pprint.pprint(self.parsed_path)
 
-        # Things that do not display playlist details
-        if self.parsed_path.path == "/":
-            self.do_GET_main_page()
-        elif self.parsed_path.path == "/spotify-playlist.css":
+        if self.parsed_path.path == "/spotify-playlist.css":
             self.addCSS_from_file('spotify-playlist.css')
-        elif self.parsed_path.path == "/add_album_to_playlist":
-            self.do_GET_add_album_to_playlist()
-        elif self.parsed_path.path == "/tag_genre":
-            self.do_GET_tag_genre()
-        elif self.parsed_path.path == "/add_album_to_watchlist":
-            self.do_GET_add_album_to_watchlist()
-        elif self.parsed_path.path == "/remove_album_from_watchlist":
-            self.do_GET_remove_album_from_watchlist()
+        elif 'app' not in params or params['app'][0] != 'spotify':
+            self.do_GET_error()
         else:
-            # Things that do
-            init_playlist_cache()
-            if Args.last_fm:
-                init_last_fm_recent_cache()
-#            else:
-#                init_spotify_recent_cache()
-
-            if self.parsed_path.path == "/search":
-                self.do_GET_search()
-            elif self.parsed_path.path == "/releases":
-                self.do_GET_releases()
-            elif self.parsed_path.path == "/playlists":
-                self.do_GET_playlists()
-            elif self.parsed_path.path == "/recent":
-                self.do_GET_recent()
-            elif self.parsed_path.path == "/watchlist":
-                self.do_GET_watchlist()
-            elif self.parsed_path.path == "/watchlist_match_only":
-                self.do_GET_watchlist(True,True)
-            elif self.parsed_path.path == "/watchlist_no_match":
-                self.do_GET_watchlist(True,False)
+            # Things that do not display playlist details
+            if self.parsed_path.path == "/":
+                self.do_GET_main_page()
+            elif self.parsed_path.path == "/add_album_to_playlist":
+                self.do_GET_add_album_to_playlist()
+            elif self.parsed_path.path == "/tag_genre":
+                self.do_GET_tag_genre()
+            elif self.parsed_path.path == "/add_album_to_watchlist":
+                self.do_GET_add_album_to_watchlist()
+            elif self.parsed_path.path == "/remove_album_from_watchlist":
+                self.do_GET_remove_album_from_watchlist()
             else:
-                self.do_GET_error()
+                # Things that do
+                init_playlist_cache()
+                if Args.last_fm:
+                    init_last_fm_recent_cache()
+    #            else:
+    #                init_spotify_recent_cache()
+
+                if self.parsed_path.path == "/search":
+                    self.do_GET_search()
+                elif self.parsed_path.path == "/releases":
+                    self.do_GET_releases()
+                elif self.parsed_path.path == "/playlists":
+                    self.do_GET_playlists()
+                elif self.parsed_path.path == "/recent":
+                    self.do_GET_recent()
+                elif self.parsed_path.path == "/watchlist":
+                    self.do_GET_watchlist()
+                elif self.parsed_path.path == "/watchlist_match_only":
+                    self.do_GET_watchlist(True,True)
+                elif self.parsed_path.path == "/watchlist_no_match":
+                    self.do_GET_watchlist(True,False)
+                else:
+                    self.do_GET_error()
         WebOutput = None
 
     def do_GET_error(self):
@@ -1854,8 +1901,10 @@ class web_server(BaseHTTPRequestHandler):
                     message = message[2:-1]
                 self.wfile.write((f"<h3>{message}</h3>").encode("utf-8"))
 
-    def addAlbum_Container_Start(self):
+    def addAlbum_Container_Start(self,album):
         self.wfile.write(b"<div class='album-container'>")
+        if 'id' in album:
+            self.wfile.write((f"<a id='album_{album['id']}'/>").encode("utf-8"))
 
     def addAlbum_Art(self,url):
         self.wfile.write(b"<div class='album-image'>")
@@ -1903,6 +1952,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write(b'<form action="/remove_album_from_watchlist">')
                 self.wfile.write(b'<label for="remove_album_from_watchlist">Remove from watchlist:</label>')
                 self.wfile.write(b"<input type='submit' value='Submit'>")
+                self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(album['watchlist_entry']['artist'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(album['watchlist_entry']['album'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
@@ -1925,6 +1975,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
             if 'watchlist_entry' in album:
                 self.wfile.write((f"<input type='hidden' name='watchlist_artist' value='{quote_plus(album['watchlist_entry']['artist'])}'</input>\n").encode("utf-8"))
@@ -1942,6 +1993,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write(b'<form action="/remove_album_from_watchlist">')
                 self.wfile.write(b'<label for="remove_album_from_watchlist">Remove from watchlist:</label>')
                 self.wfile.write(b"<input type='submit' value='Submit'>")
+                self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(entry['artist'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(entry['album'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
@@ -1951,6 +2003,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write(b'<form action="/add_album_to_watchlist">')
                 self.wfile.write(b'<label for="add_album_to_watchlist">Add to watchlist:</label>')
                 self.wfile.write(b"<input type='submit' value='Submit'>")
+                self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(album['artist'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(album['name'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='release_date' value='{album['release_date']}'</input>\n").encode("utf-8"))
@@ -1969,6 +2022,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
 
@@ -1982,6 +2036,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
 
@@ -1995,6 +2050,7 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write((f"<option value='{genre}'>{genre}</option>\n").encode("utf-8"))
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
 
@@ -2020,7 +2076,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"<div class='clear'/>")
 
     def addMissingAlbum(self,album):
-        self.addAlbum_Container_Start()
+        self.addAlbum_Container_Start(album)
         self.addAlbum_Art(album['art'])
 
         self.addAlbum_Header_Start()
@@ -2042,7 +2098,7 @@ class web_server(BaseHTTPRequestHandler):
         return best_url
 
     def addAlbum(self,album,release_date='',genres=[]):
-        self.addAlbum_Container_Start()
+        self.addAlbum_Container_Start(album)
         if len(album['images']) > 0:
             self.addAlbum_Art(self.chooseAlbumArt(album['images'],300))
 
@@ -2070,7 +2126,20 @@ class web_server(BaseHTTPRequestHandler):
 
         return results
 
-    def do_GET_main_page(self):
+    def addRedirect(self,params,message):
+        self.send_response(302)
+        fragment = ""
+        if 'album' in params:
+            fragment = f"#album_{params['album'][0]}"
+        target = "/"
+        if 'return' in params:
+            target = params['return'][0]
+
+        redirect = f"{target}?app=spotify&message={message}{fragment}"
+        print(f"Redirecting to {redirect}")
+        self.send_header('Location', redirect)
+
+    def addTopOfPage(self,subtitle=""):
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=UTF-8')
         self.end_headers()
@@ -2079,34 +2148,35 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"<head>\n")
         self.addCSS()
         self.wfile.write(b"</head>\n")
+
         self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1>Spotify Toolbox</h1>\n")
+        if len(subtitle) > 0:
+            self.wfile.write((f"<h1><a href='/?app=spotify'>Spotify Toolbox</a> - {subtitle}</h1>\n").encode("utf-8"))
+        else:
+            self.wfile.write(b"<h1><a href='/?app=spotify'>Spotify Toolbox</a></h1>\n")
+
+    def do_GET_main_page(self):
+        self.addTopOfPage()
+
         self.wfile.write(b"<ul>\n")
-        self.wfile.write(b'<li><a href="/search">Search</a></li>\n')
-        self.wfile.write(b'<li><a href="/releases">MetalStorm New Releases</a></li>\n')
-        self.wfile.write(b'<li><a href="/playlists">Playlists</a></li>\n')
-        self.wfile.write(b'<li><a href="/recent">Recent Tracks</a></li>\n')
-        self.wfile.write(b'<li><a href="/watchlist">Watchlist</a></li>\n')
-        self.wfile.write(b'<li><a href="/watchlist_match_only">Watchlist (only matched)</a></li>\n')
-        self.wfile.write(b'<li><a href="/watchlist_no_match">Watchlist (only unmatched)</a></li>\n')
+        self.wfile.write(b'<li><a href="/search?app=spotify">Search</a></li>\n')
+        self.wfile.write(b'<li><a href="/releases?app=spotify">MetalStorm New Releases</a></li>\n')
+        self.wfile.write(b'<li><a href="/playlists?app=spotify">Playlists</a></li>\n')
+        self.wfile.write(b'<li><a href="/recent?app=spotify">Recent Tracks</a></li>\n')
+        self.wfile.write(b'<li><a href="/watchlist?app=spotify">Watchlist</a></li>\n')
+        self.wfile.write(b'<li><a href="/watchlist_match_only?app=spotify">Watchlist (only matched)</a></li>\n')
+        self.wfile.write(b'<li><a href="/watchlist_no_match?app=spotify">Watchlist (only unmatched)</a></li>\n')
         self.wfile.write(b"</ul>\n")
 
     def do_GET_search(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
-        self.addCSS()
-        self.wfile.write(b"</head>\n")
-        self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - Search</h1>\n")
+        self.addTopOfPage("Search")
+
         self.wfile.write(b'''
 <div class="topnav">
   <div class="search-container">
     <form action="/search">
       <input type="text" placeholder="Search.." name="search">
+      <input type="hidden" name="app" value="spotify"></input>
       <button type="submit"><i class="fa fa-search"></i></button>
     </form>
   </div>
@@ -2132,17 +2202,7 @@ class web_server(BaseHTTPRequestHandler):
 
 
     def do_GET_recent(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
-        self.addCSS()
-        self.wfile.write(b"</head>\n")
-
-        self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - Recent Tracks</h1>\n")
+        self.addTopOfPage("Recent Tracks")
 
         params = parse_qs(self.parsed_path.query)
 
@@ -2169,17 +2229,7 @@ class web_server(BaseHTTPRequestHandler):
 
 
     def do_GET_releases(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
-        self.addCSS()
-        self.wfile.write(b"</head>\n")
-
-        self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - MetalStorm New Releases</h1>\n")
+        self.addTopOfPage("MetalStorm New Releases")
 
         params = parse_qs(self.parsed_path.query)
 
@@ -2207,17 +2257,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"</html>")
 
     def do_GET_watchlist(self,filter=False,matched_only=True):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
-        self.addCSS()
-        self.wfile.write(b"</head>\n")
-
-        self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - Watchlist</h1>\n")
+        self.addTopOfPage("Watchlist")
 
         params = parse_qs(self.parsed_path.query)
 
@@ -2275,11 +2315,8 @@ class web_server(BaseHTTPRequestHandler):
         message = message.encode('latin-1','xmlcharrefreplace')
         message = quote_plus(message)
 
-        self.send_response(302)
-        if 'return' in params:
-            self.send_header('Location', f"{params['return'][0]}?message={message}")
-        else:
-            self.send_header('Location', f"/?message={message}")
+        self.addRedirect(params,message)
+
         self.end_headers()
 
     def do_GET_add_album_to_watchlist(self):
@@ -2304,11 +2341,8 @@ class web_server(BaseHTTPRequestHandler):
         message = message.encode('latin-1','xmlcharrefreplace')
         message = quote_plus(message)
 
-        self.send_response(302)
-        if 'return' in params:
-            self.send_header('Location', f"{params['return'][0]}?message={message}")
-        else:
-            self.send_header('Location', f"/?message={message}")
+        self.addRedirect(params,message)
+
         self.end_headers()
 
     def do_GET_remove_album_from_watchlist(self):
@@ -2331,11 +2365,8 @@ class web_server(BaseHTTPRequestHandler):
         message = message.encode('latin-1','xmlcharrefreplace')
         message = quote_plus(message)
 
-        self.send_response(302)
-        if 'return' in params:
-            self.send_header('Location', f"{params['return'][0]}?message={message}")
-        else:
-            self.send_header('Location', f"/?message={message}")
+        self.addRedirect(params,message)
+
         self.end_headers()
 
     def do_GET_tag_genre(self):
@@ -2376,11 +2407,8 @@ class web_server(BaseHTTPRequestHandler):
         message = message.encode('latin-1','xmlcharrefreplace')
         message = quote_plus(message)
 
-        self.send_response(302)
-        if 'return' in params:
-            self.send_header('Location', f"{params['return'][0]}?message={message}")
-        else:
-            self.send_header('Location', f"/?message={message}")
+        self.addRedirect(params,message)
+
         self.end_headers()
 
     def do_GET_playlists_add_header(self):
@@ -2391,16 +2419,7 @@ class web_server(BaseHTTPRequestHandler):
         if 'playlist' in params:
             playlist_selected = params['playlist'][0]
 
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html; charset=UTF-8')
-        self.end_headers()
-        self.wfile.write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">\n')
-        self.wfile.write(b"<html>\n")
-        self.wfile.write(b"<head>\n")
-        self.addCSS()
-        self.wfile.write(b"</head>\n")
-        self.wfile.write(b"<body>\n")
-        self.wfile.write(b"<h1><a href='/'>Spotify Toolbox</a> - Playlists</h1>\n")
+        self.addTopOfPage("Playlists")
 
         self.showMessage(params)
 
@@ -2421,6 +2440,7 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
         self.wfile.write(b"</select>\n")
         self.wfile.write(b"<input type='submit' value='Submit'>")
+        self.wfile.write((f"<input type='hidden' name='app' value='spotify'>\n").encode("utf-8"))
 #        self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
 #        self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
         self.wfile.write(b"</form>\n")
@@ -2494,7 +2514,7 @@ class web_server(BaseHTTPRequestHandler):
 
                 print(message)
                 self.send_response(302)
-                self.send_header('Location', f"/playlists?playlist={playlist['id']}&message={message}")
+                self.send_header('Location', f"/playlists?app=spotify&playlist={playlist['id']}&message={message}")
                 self.end_headers()
                 return None
 
@@ -2503,6 +2523,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
         self.wfile.write(b'<label for="playlist">Delete first albums from playlist:</label>')
         self.wfile.write((f"<input type='number' name='firstN' id='firstN' min='1'>\n").encode("utf-8"))
+        self.wfile.write((f"<input type='hidden' name='app' value='spotify'>\n").encode("utf-8"))
         self.wfile.write((f"<input type='hidden' name='action' value='delete-first-N'>\n").encode("utf-8"))
         self.wfile.write((f"<input type='hidden' name='playlist' value='{playlist['id']}'>\n").encode("utf-8"))
 #                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'>\n").encode("utf-8"))
