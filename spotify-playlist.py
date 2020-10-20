@@ -3,7 +3,7 @@ import logging
 import pprint
 import csv
 import time
-from lxml import html
+from lxml import html, etree
 import requests
 import datetime
 from collections import namedtuple
@@ -59,7 +59,9 @@ Watchlist = []
 
 def check_IP(ip):
     if ip not in IPBlacklist:
+        print(f"Checking IP {ip}")
         result = IPBlacklistChecker.check(ip)
+        print(f"Adding IP cache ({ip},{result.blacklisted})")
         IPBlacklist[ip] = result.blacklisted
 
     return IPBlacklist[ip] == False
@@ -141,6 +143,8 @@ def get_args():
     parser.add_argument('--last-fm', required=False, action="store_true", help='Enable Last.FM integration')
     parser.add_argument('--last-fm-recent-count', type=int, default=-1, required=False, help='How many recent tracks to retrieve from Last.FM')
 
+    parser.add_argument('--bandcamp', required=False, action="store_true", help='Enable bandcamp integration')
+
     parser.add_argument('--server-default-playlist', required=False, help='Default playlist to add tracks to')
 
     return parser.parse_args()
@@ -216,7 +220,7 @@ def list_to_comma_separated_string(list,key):
             artists = artists + ", "
             artists_links = artists_links + ", "
         artists = artists + artist[key]
-        if WebOutput != None:
+        if WebOutput != None and 'uri' in artist:
             artist_uri = artist['uri']
             artist_link = 'http://open.spotify.com/' + artist_uri[8:].replace(':','/')
             artists_links = artists_links + f"<a href='{artist_link}'><i class='fas fa-link'></i></a>{artist[key]}"
@@ -227,12 +231,16 @@ def list_to_comma_separated_string(list,key):
 def print_track(result,i,album=None):
     track_name = result['name']
     track_uri = result['uri']
-    track_link = 'http://open.spotify.com/' + track_uri[8:].replace(':','/')
+    if track_uri != "":
+        track_link = 'http://open.spotify.com/' + track_uri[8:].replace(':','/')
+    else:
+        track_link = None
     artists, artists_with_links = list_to_comma_separated_string(result['artists'],'name')
     if album == None:
         album = result['album']
     album_name = album['name']
-    album_uri = album['uri']
+    album_uri = album['uri'] if 'uri' in album else None
+    album_link = album['link'] if 'link' in album else ""
     if album_uri != None:
         album_link = 'http://open.spotify.com/' + album_uri[8:].replace(':','/')
     duration_ms = result['duration_ms']
@@ -247,7 +255,7 @@ def print_track(result,i,album=None):
     if 'popularity' in result:
         popularity = result['popularity']
     playlists = []
-    if TrackPlaylistCache != None:
+    if TrackPlaylistCache != None and 'id' in result:
         playlist_ids = TrackPlaylistCache.get(result['id'],[])
         for playlist_id in playlist_ids:
             playlist = PlaylistDetailsCache[playlist_id]
@@ -261,7 +269,10 @@ def print_track(result,i,album=None):
     if WebOutput != None:
         WebOutput.wfile.write((f"<td class='track-number'>{i}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='play-count'>{playcount}</td>\n").encode("utf-8"))
-        WebOutput.wfile.write((f"<td class='track-name'><a href='{track_link}'><i class='far fa-play-circle'></i></a>{track_name}</td>\n").encode("utf-8"))
+        if track_link != None:
+            WebOutput.wfile.write((f"<td class='track-name'><a href='{track_link}'><i class='far fa-play-circle'></i></a>{track_name}</td>\n").encode("utf-8"))
+        else:
+            WebOutput.wfile.write((f"<td class='track-name'>{track_name}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='artist'>{artists_with_links}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='album'><a href='{album_link}'><i class='fas fa-link'></i></a>{album_name}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='playlist'>").encode("utf-8"))
@@ -1277,7 +1288,7 @@ def init_last_fm_recent_cache():
                 LastFMRecentTrackCache[entry] = 1
     if latest_timestamp == None:
         latest_timestamp = orig_timestamp
-    if Args.last_fm_recent_count < 0:
+    if Args.last_fm_recent_count < 0 and len(recent_tracks) > 0:
 #        print(f"New timestamp is {latest_timestamp}")
         init_last_fm_recent_cache_to_file(latest_timestamp)
 
@@ -1901,8 +1912,12 @@ class web_server(BaseHTTPRequestHandler):
 
     def addAlbum_Container_Start(self,album):
         self.wfile.write(b"<div class='album-container'>")
-        if 'id' in album:
-            self.wfile.write((f"<a id='album_{album['id']}'/>").encode("utf-8"))
+        if 'target' in album:
+            self.wfile.write((f"<a id='{album['target']}'></a>").encode("utf-8"))
+        elif 'id' in album:
+            self.wfile.write((f"<a id='album_{album['id']}'></a>").encode("utf-8"))
+        elif 'name' in album:
+            self.wfile.write((f"<a id='album_{quote_plus(album['name'])}'></a>").encode("utf-8"))
 
     def addAlbum_Art(self,url):
         self.wfile.write(b"<div class='album-image'>")
@@ -1953,6 +1968,8 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(album['watchlist_entry']['artist'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(album['watchlist_entry']['album'])}'</input>\n").encode("utf-8"))
+                if 'return_target' in album:
+                    self.wfile.write((f"<input type='hidden' name='return_target' value='{quote_plus(album['return_target'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
                 self.wfile.write(b'</form>')
                 self.wfile.write((f"<form action='/add_album_to_playlist'>\n").encode("utf-8"))
@@ -1978,12 +1995,18 @@ class web_server(BaseHTTPRequestHandler):
             if 'watchlist_entry' in album:
                 self.wfile.write((f"<input type='hidden' name='watchlist_artist' value='{quote_plus(album['watchlist_entry']['artist'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='watchlist_album' value='{quote_plus(album['watchlist_entry']['album'])}'</input>\n").encode("utf-8"))
+            if 'return_target' in album:
+                self.wfile.write((f"<input type='hidden' name='return_target' value='{quote_plus(album['return_target'])}'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
         else:
-            bandcampsearch = quote_plus(f"{album['artist']} {album['name']}")
-            bandcamplink = f"<div>Not found in Spotify: <a href='https://bandcamp.com/search?q={bandcampsearch}'>Search Bandcamp</a></div>\n"
-            self.wfile.write(bandcamplink.encode("utf-8"))
+            if 'bandcamp_link' in album:
+                bandcamplink = f"<div> Not found in Spotify</div><div>Found in Bandcamp: <a href='{album['bandcamp_link']}'>Open in Bandcamp</a></div>\n"
+                self.wfile.write(bandcamplink.encode("utf-8"))
+            else:
+                bandcampsearch = quote_plus(f"{album['artist']} {album['name']}")
+                bandcamplink = f"<div>Not found in Spotify: <a href='https://bandcamp.com/search?q={bandcampsearch}'>Search Bandcamp</a></div>\n"
+                self.wfile.write(bandcamplink.encode("utf-8"))
             entry = { 'track': '*', 'artist': album['artist'], 'album': album['name'] }
             if 'watchlist_entry' in album:
                 entry = { 'track': '*', 'artist': album['watchlist_entry']['artist'], 'album': album['watchlist_entry']['album'] }
@@ -1994,6 +2017,8 @@ class web_server(BaseHTTPRequestHandler):
                 self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='artist' value='{quote_plus(entry['artist'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='album' value='{quote_plus(entry['album'])}'</input>\n").encode("utf-8"))
+                if 'return_target' in album:
+                    self.wfile.write((f"<input type='hidden' name='return_target' value='{quote_plus(album['return_target'])}'</input>\n").encode("utf-8"))
                 self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
                 self.wfile.write(b'</form>')
             else:
@@ -2074,14 +2099,94 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"<div class='clear'/>")
 
     def addMissingAlbum(self,album):
+        album['name'] = album['album']
+
+        track_list = []
+
+        if Args.bandcamp:
+            data = read_URL(f"http://bandcamp.com/search?q={quote_plus(album['artist'])}")
+            lines = data.xpath('//li[@class="searchresult band"]/div[@class="result-info"]/div[@class="itemurl"]/a/@href')
+            if len(lines) > 0:
+#                print("Found band")
+                data2 = read_URL(lines[0])
+                lines2 = data2.xpath('//div[@id="discography"]/ul/li')
+                if len(lines2) > 0:
+#                    print("Found discography")
+                    for line2 in lines2:
+                        title = line2.xpath('.//div[@class="trackTitle"]/a')
+                        if len(title) > 0 and title[0].text_content().strip().upper() == album['album'].strip().upper():
+#                            print("Found album")
+                            print(etree.tostring(line2,pretty_print=True))
+                            title[0].make_links_absolute(lines[0])
+                            print(etree.tostring(line2,pretty_print=True))
+                            album['link'] = title[0].get("href")
+                            album['bandcamp_link'] = album['link']
+#                            print(f"Reading {album['link']}")
+                            data3 = read_URL(album['link'])
+                            if 'art' not in 'album' or album['art'] == '':
+                                url = data3.xpath('.//div[@id="tralbumArt"]/a/img/@src')
+                                if len(url) > 0:
+#                                    print("Found art")
+                                    album['art'] = url[0]
+                            lines3 = data3.xpath('//table[@id="track_table"]//tr')
+                            if len(lines3) > 0:
+#                                print(f"Found track table - {len(lines3)}")
+                                for i, line3 in enumerate(lines3):
+#                                    print(etree.tostring(line3,pretty_print=True))
+                                    track_number = line3.xpath('.//td[@class="track-number-col"]/div/text()')
+                                    track_title = line3.xpath('.//td[@class="title-col"]/div/a/span[@class="track-title"]/text()')
+                                    if len(track_number) > 0 and len(track_title) > 0:
+#                                        print(f"Found track {len(track_number)},{len(track_title)}: {track_number[0]} - {track_title[0]}")
+                                        track = { 'name': track_title[0], 'uri': "", 'explicit': False, 'artists': [{'name': album['artist'] }], 'duration_ms': 0, 'album' : album }
+                                        track_list.append( track )
+                else:
+                    lines2 = data2.xpath('//ol[@id="music-grid"]/li')
+                    for line2 in lines2:
+                        title = line2.xpath('.//p[@class="title"]')
+                        link = line2.xpath('.//a/@href')
+                        if len(title) > 0 and title[0].text_content().strip().upper() == album['album'].strip().upper():
+                            line2[0].make_links_absolute(lines[0])
+                            album['link'] = line2[0].get("href")
+                            album['bandcamp_link'] = album['link']
+#                            print(f"Reading {album['link']}")
+                            data3 = read_URL(album['link'])
+                            if 'art' not in 'album' or album['art'] == '':
+                                url = data3.xpath('.//div[@id="tralbumArt"]/a/img/@src')
+                                if len(url) > 0:
+#                                    print("Found art")
+                                    album['art'] = url[0]
+                            lines3 = data3.xpath('//table[@id="track_table"]//tr')
+                            if len(lines3) > 0:
+#                                print(f"Found track table - {len(lines3)}")
+                                for i, line3 in enumerate(lines3):
+#                                    print(etree.tostring(line3,pretty_print=True))
+                                    track_number = line3.xpath('.//td[@class="track-number-col"]/div/text()')
+                                    track_title = line3.xpath('.//td[@class="title-col"]/div/a/span[@class="track-title"]/text()')
+                                    if len(track_number) > 0 and len(track_title) > 0:
+#                                        print(f"Found track {len(track_number)},{len(track_title)}: {track_number[0]} - {track_title[0]}")
+                                        track = { 'name': track_title[0], 'uri': "", 'explicit': False, 'artists': [{'name': album['artist'] }], 'duration_ms': 0, 'album' : album }
+                                        track_list.append( track )
+
+
         self.addAlbum_Container_Start(album)
-        self.addAlbum_Art(album['art'])
+
+        if 'art' in album:
+            self.addAlbum_Art(album['art'])
 
         self.addAlbum_Header_Start()
         goodGenres, badGenres, untaggedGenres = self.addAlbum_Details(album['release_date'],album['genres'])
-        album['name'] = album['album']
         self.addAlbum_Actions(album,goodGenres,badGenres,untaggedGenres)
         self.addAlbum_Header_End()
+
+        self.wfile.write(b"<div class='album-tracklist'>")
+        self.wfile.write(b"<table>")
+        for i,track in enumerate(track_list):
+            self.wfile.write(b"<tr>")
+            print_track(track,i+1,album)
+            self.wfile.write(b"</tr>")
+        self.wfile.write(b"</table>")
+
+        self.wfile.write(b"</div>")
 
         self.addAlbum_Container_End()
 
@@ -2127,7 +2232,9 @@ class web_server(BaseHTTPRequestHandler):
     def addRedirect(self,params,message):
         self.send_response(302)
         fragment = ""
-        if 'album' in params:
+        if 'return_target' in params:
+            fragment = f"#{params['return_target'][0]}"
+        elif 'album' in params:
             fragment = f"#album_{params['album'][0]}"
         target = "/"
         if 'return' in params:
@@ -2261,19 +2368,29 @@ class web_server(BaseHTTPRequestHandler):
 
         self.showMessage(params)
 
+        last_target = 0
         for release in Watchlist:
+            if release['artist'] != "CHAOS ECHŒS":
+                continue
             results = self.getResults('*',release['artist'],release['album'])
             if len(results) == 0:
                 if not (filter and matched_only):
                     self.wfile.write(b"<hr/>")
                     self.wfile.write((f"<h2>Results for {release['artist']},{release['album']}</h2>\n").encode("utf-8"))
+                    release['return_target'] = f"album_{last_target}"
+                    last_target = last_target + 1
+                    release['target'] = f"album_{last_target}"
                     self.addMissingAlbum(release)
+#                    break
             else:
                 if not (filter and not matched_only):
                     self.wfile.write(b"<hr/>")
                     self.wfile.write((f"<h2>Results for {release['artist']},{release['album']}</h2>\n").encode("utf-8"))
                     for album in results:
                         album['watchlist_entry'] = release
+                        album['return_target'] = f"album_{last_target}"
+                        last_target = last_target + 1
+                        album['target'] = f"album_{last_target}"
                         self.addAlbum(album,release['release_date'],release['genres'])
 
         self.wfile.write(b"</body>\n")
@@ -2473,8 +2590,6 @@ class web_server(BaseHTTPRequestHandler):
                                     tracks_to_remove = []
                                     for remove_track in first_album_tracks:
                                         tracks_to_remove.append(remove_track['track']['id'])
-                                        if Args.dryrun:
-                                            print_track(remove_track['track'],len(tracks_to_remove))
                                     SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(user_id,playlist['id'],tracks_to_remove)
 
                                     if new_album_count > firstN:
@@ -2494,8 +2609,6 @@ class web_server(BaseHTTPRequestHandler):
                                     tracks_to_remove = []
                                     for remove_track in first_album_tracks:
                                         tracks_to_remove.append(remove_track['track']['id'])
-                                        if Args.dryrun:
-                                            print_track(remove_track['track'],len(tracks_to_remove))
                                     SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(user_id,playlist['id'],tracks_to_remove)
                                 break;
                 message = message + "</ul>"
