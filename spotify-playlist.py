@@ -12,12 +12,13 @@ from shutil import copyfile
 from sanitize_filename import sanitize
 from pathlib import Path
 import random
-#
+
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, quote_plus, unquote_plus, parse_qs
+import pydnsbl
 
 import json
 
@@ -51,7 +52,17 @@ URLCacheTimeout = 60*60
 SpotifyAlbumCache = {}
 SpotifyAlbumCacheTimeout = 60*60
 
+IPBlacklistChecker = pydnsbl.DNSBLIpChecker()
+IPBlacklist = {}
+
 Watchlist = []
+
+def check_IP(ip):
+    if ip not in IPBlacklist:
+        result = IPBlacklistChecker.check(ip)
+        IPBlacklist[ip] = result.blacklisted
+
+    return IPBlacklist[ip] == False
 
 def read_URL(url):
     timenow = int(time.time())
@@ -412,6 +423,36 @@ def select_duplicate_artist(results,artist_name,ask=True):
             pass
     return []
 
+def is_selected_playlist(playlist,id_or_name=None):
+    if not id_or_name:
+        id_or_name = Args.playlist
+    if playlist['name'] == id_or_name:
+        return True
+    if playlist['id'] == id_or_name:
+        return True;
+    else:
+        return False
+
+def get_playlist(playlist_id_or_name):
+    try:
+        playlist = SpotifyAPI.playlist(playlist_id_or_name)
+        if playlist:
+            return playlist
+    except:
+        pass
+
+    user_id = SpotifyAPI.me()['id']
+    playlists = SpotifyAPI.user_playlists(user_id)
+    for playlist in playlists['items']:
+        if is_selected_playlist(playlist,playlist_id_or_name):
+            return playlist
+    while playlists['next']:
+        playlists = SpotifyAPI.next(playlists)
+        for playlist in playlists['items']:
+            if is_selected_playlist(playlist,playlist_id_or_name):
+                return playlist
+    return None
+
 def process_tracks(tracks):
     show_tracks = []
     for entry in tracks:
@@ -424,7 +465,7 @@ def process_tracks(tracks):
                 show = False
             else:
                 playlist = SpotifyAPI.playlist(context['uri'])
-                if Args.playlist != playlist['name']:
+                if not is_selected_playlist(playlist):
                     show = False
                 else:
                     if Args.delete:
@@ -441,53 +482,51 @@ def process_tracks(tracks):
         select_duplicate(show_tracks,'','','',False)
 
 
-def process_first_albums(playlists):
-    for playlist in playlists:
-        if Args.playlist == playlist['name']:
-            if playlist['tracks']['total'] > 0:
-                new_album_count = 1
-                tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
-                firsttrack = tracks['items'][0]['track']
-                album = firsttrack['album']
-                first_album_tracks = []
-                while True:
-                    for track in tracks['items']:
-                        if track['track']['album'] == album:
-                            first_album_tracks.append(track)
+def process_first_albums(playlist):
+    if playlist['tracks']['total'] > 0:
+        new_album_count = 1
+        tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+        firsttrack = tracks['items'][0]['track']
+        album = firsttrack['album']
+        first_album_tracks = []
+        while True:
+            for track in tracks['items']:
+                if track['track']['album'] == album:
+                    first_album_tracks.append(track)
+                else:
+                    if not Args.show_tracks:
+                        print_album(new_album_count,album,len(first_album_tracks))
+                    new_album_count = new_album_count + 1
+
+                    if Args.delete:
+                        tracks_to_remove = []
+                        for remove_track in first_album_tracks:
+                            tracks_to_remove.append(remove_track['track']['id'])
+                            if Args.dryrun:
+                                print_track(remove_track['track'],len(tracks_to_remove))
+                        if Args.dryrun:
+                             None
                         else:
-                            if not Args.show_tracks:
-                                print_album(new_album_count,album,len(first_album_tracks))
-                            new_album_count = new_album_count + 1
-
-                            if Args.delete:
-                                tracks_to_remove = []
-                                for remove_track in first_album_tracks:
-                                    tracks_to_remove.append(remove_track['track']['id'])
-                                    if Args.dryrun:
-                                        print_track(remove_track['track'],len(tracks_to_remove))
-                                if Args.dryrun:
-                                     None
-                                else:
-                                    SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(SpotifyAPI.me()['id'],playlist['id'],tracks_to_remove)
-#                            elif Args.list:
-#                                select_duplicate(first_album_tracks,'','','',False)
-
-                            if new_album_count > Args.first_albums:
-                                break;
-                            album = track['track']['album']
-                            if not Args.show_tracks:
-                                first_album_tracks = []
-                            first_album_tracks.append(track)
+                            SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(SpotifyAPI.me()['id'],playlist['id'],tracks_to_remove)
+#                    elif Args.list:
+#                        select_duplicate(first_album_tracks,'','','',False)
 
                     if new_album_count > Args.first_albums:
                         break;
-                    elif tracks['next']:
-                        tracks = SpotifyAPI.next(tracks)
-                    else:
-                        break;
-                if Args.show_tracks:
-                    for i,track in enumerate(first_album_tracks):
-                        print_track(track['track'],i+1)
+                    album = track['track']['album']
+                    if not Args.show_tracks:
+                        first_album_tracks = []
+                    first_album_tracks.append(track)
+
+            if new_album_count > Args.first_albums:
+                break;
+            elif tracks['next']:
+                tracks = SpotifyAPI.next(tracks)
+            else:
+                break;
+        if Args.show_tracks:
+            for i,track in enumerate(first_album_tracks):
+                print_track(track['track'],i+1)
 
 def get_results_for_track(track_name,artist,album,show_list,prompt_for_choice):
     search_str = "track:%s artist:%s album:%s" % (track_name, artist, album)
@@ -841,7 +880,7 @@ def find_artist(artist,prompt_unique):
         print("Duplicates found")
         return None
 
-def process_playlists_add_album(playlists,album):
+def add_album_to_playlist(album,playlist):
     tracks = SpotifyAPI.album_tracks(album['id'])
     track_ids = []
     for track in tracks['items']:
@@ -850,13 +889,12 @@ def process_playlists_add_album(playlists,album):
         tracks = SpotifyAPI.next(tracks)
         for track in tracks['items']:
             track_ids.append(track['id'])
-    for playlist in playlists:
-        if Args.playlist == playlist['name']:
-            if Args.dryrun:
-                print("Would add tracks:")
-                pprint.pprint(track_ids)
-            else:
-                SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
+    if Args.dryrun:
+        print("Would add tracks:")
+        pprint.pprint(track_ids)
+    else:
+        SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
+    return len(track_ids)
 
 def open_dataset_csv():
     csv_file = open( Args.file )
@@ -1193,11 +1231,8 @@ def query_playlist():
         return None
 
     user_id = SpotifyAPI.me()['id']
-    playlists = SpotifyAPI.user_playlists(user_id)
-    for playlist in playlists['items']:
-        if playlist['name'] == Args.playlist:
-            pprint.pprint(playlist)
-
+    playlist = get_playlist(Args.playlist)
+    pprint.pprint(playlist)
 
 def query_recent():
     if Args.last_fm:
@@ -1594,12 +1629,12 @@ def export_playlists():
 
     playlists = SpotifyAPI.user_playlists(user_id)
     for playlist in playlists['items']:
-        if playlist['name'] == Args.playlist or not Args.playlist:
+        if is_selected_playlist(playlist) or not Args.playlist:
             export_playlist(playlist)
     while playlists['next']:
         playlists = SpotifyAPI.next(playlists)
         for playlist in playlists['items']:
-            if playlist['name'] == Args.playlist or not Args.playlist:
+            if is_selected_playlist(playlist) or not Args.playlist:
                 export_playlist(playlist)
 
 def recommend_from_playlist(playlist):
@@ -1683,15 +1718,11 @@ def main():
     elif Args.set_description:
         print("Setting playlist description")
         if Args.playlist:
-            playlists = SpotifyAPI.user_playlists(user_id)
-            for playlist in playlists['items']:
-                if playlist['name'] == Args.playlist:
-                    SpotifyAPI.user_playlist_change_details(user_id,playlist['id'],description=Args.set_description)
-            while playlists['next']:
-                playlists = SpotifyAPI.next(playlists)
-                for playlist in playlists['items']:
-                    if playlist['name'] == Args.playlist:
-                        SpotifyAPI.user_playlist_change_details(user_id,playlist['id'],description=Args.set_description)
+            playlist = get_playlist(Args.playlist)
+            if playlist:
+                SpotifyAPI.user_playlist_change_details(user_id,playlist['id'],description=Args.set_description)
+            else:
+                print(f"Playlist {Args.playlist} not found")
     elif Args.find:
         if Args.artist and Args.album:
             if Args.track_name:
@@ -1704,31 +1735,19 @@ def main():
         if Args.playlist and Args.artist and Args.album:
             if Args.track_name:
                 print("Add track (Not implemented)")
-#                track = find_track(.track_name,Args.artist,Args.album)
-#                if track:
-#                    playlists = SpotifyAPI.user_playlists(user_id)
-#                    process_playlists_add_track(playlists['items'],sp,args,track)
-#                    while playlists['next']:
-#                        playlists = SpotifyAPI.next(playlists)
-#                        process_playlists_add_track(playlists['items'],sp,args,track)
             else:
                 print("Add album")
                 album = find_album(Args.artist,Args.album)
-                if album:
-                    playlists = SpotifyAPI.user_playlists(user_id)
-                    process_playlists_add_album(playlists['items'],album)
-                    while playlists['next']:
-                        playlists = SpotifyAPI.next(playlists)
-                        process_playlists_add_album(playlists['items'],album)
+                playlist = get_playlist(Args.playlist)
+                if album and playlist:
+                    add_album_to_playlist(album,playlist)
     elif Args.delete:
         if Args.playlist:
             if Args.first_albums:
                 print("Deleting initial albums from playlist")
-                playlists = SpotifyAPI.user_playlists(user_id)
-                process_first_albums(playlists['items'])
-#                while playlists['next']:
-#                    playlists = SpotifyAPI.next(playlists)
-#                    process_first_albums(playlists['items'],sp,args)
+                playlist = get_playlist(Args.playlist)
+                if playlist:
+                    process_first_albums(playlist)
             elif Args.recent:
                 tracks = SpotifyAPI.current_user_recently_played()
                 process_tracks(tracks['items'])
@@ -1736,28 +1755,17 @@ def main():
                     tracks = SpotifyAPI.next(tracks)
                     process_tracks(tracks['items'])
             elif Args.all:
-                playlists = SpotifyAPI.user_playlists(user_id)
-                for playlist in playlists['items']:
-                    if playlist['name'] == Args.playlist:
-                        if Args.dryrun:
-                            print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
-                        else:
-                            SpotifyAPI.user_playlist_unfollow(user_id,playlist['id'])
-                while playlists['next']:
-                    playlists = SpotifyAPI.next(playlists)
-                    for playlist in playlists['items']:
-                        if playlist['name'] == Args.playlist:
-                            if Args.dryrun:
-                                print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
-                            else:
-                                SpotifyAPI.user_playlist_unfollow(user_id,playlist['id'])
+                playlist = get_playlist(Args.playlist)
+                if playlist:
+                    if Args.dryrun:
+                        print("Would delete playlist %s (%s)" % (platlist['name'], playlist['id']))
+                    else:
+                        SpotifyAPI.user_playlist_unfollow(user_id,playlist['id'])
     elif Args.list:
             if Args.first_albums:
-                playlists = SpotifyAPI.user_playlists(user_id)
-                process_first_albums(playlists['items'])
-#                while playlists['next']:
-#                    playlists = SpotifyAPI.next(playlists)
-#                    process_first_albums(playlists['items'],sp,args)
+                playlist = get_playlist(Args.playlist)
+                if playlist:
+                    process_first_albums(playlist)
             elif Args.recent:
                 tracks = SpotifyAPI.current_user_recently_played()
                 process_tracks(tracks['items'])
@@ -1765,23 +1773,13 @@ def main():
                     tracks = SpotifyAPI.next(tracks)
                     process_tracks(tracks['items'])
             elif Args.all:
-                playlists = SpotifyAPI.user_playlists(user_id)
-                for playlist in playlists['items']:
-                    if playlist['name'] == Args.playlist:
-                        tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+                playlist = get_playlist(Args.playlist)
+                if playlist:
+                    tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+                    select_duplicate(tracks['items'],'','','',False)
+                    while tracks['next']:
+                        tracks = SpotifyAPI.next(tracks)
                         select_duplicate(tracks['items'],'','','',False)
-                        while tracks['next']:
-                            tracks = SpotifyAPI.next(tracks)
-                            select_duplicate(tracks['items'],'','','',False)
-                while playlists['next']:
-                    playlists = SpotifyAPI.next(playlists)
-                    for playlist in playlists['items']:
-                        if playlist['name'] == Args.playlist:
-                            tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
-                            select_duplicate(tracks['items'],'','','',False)
-                            while tracks['next']:
-                                tracks = SpotifyAPI.next(tracks)
-                                select_duplicate(tracks['items'],'','','',False)
             elif Args.recommendations:
                 if Args.artist:
                     if Args.album:
@@ -1800,15 +1798,9 @@ def main():
                     tracks = SpotifyAPI.recommendations(seed_genres=[Args.genre])
                     process_tracks(tracks['tracks'])
                 elif Args.playlist:
-                    playlists = SpotifyAPI.user_playlists(user_id)
-                    for playlist in playlists['items']:
-                        if playlist['name'] == Args.playlist:
-                            recommend_from_playlist(playlist)
-                    while playlists['next']:
-                        playlists = SpotifyAPI.next(playlists)
-                        for playlist in playlists['items']:
-                            if playlist['name'] == Args.playlist:
-                                recommend_from_playlist(playlist)
+                    playlist = get_playlist(Args.playlist)
+                    if playlist:
+                        recommend_from_playlist(playlist)
 
     elif Args.export:
         export_playlists()
@@ -1825,6 +1817,12 @@ def main():
 
 class web_server(BaseHTTPRequestHandler):
     def do_GET(self):
+        if not check_IP(self.client_address[0]):
+            print(f"Blacklisting request from {self.client_address[0]}")
+            self.send_response(403)
+            self.end_headers()
+            return None
+
         global WebOutput
         WebOutput = self
         self.parsed_path = urlparse(self.path)
@@ -2289,17 +2287,9 @@ class web_server(BaseHTTPRequestHandler):
             album = read_SpotifyAlbum(params['album'][0]) #SpotifyAPI.album(params['album'][0])
             playlist = SpotifyAPI.playlist(params['playlist'][0])
 
-            tracks = SpotifyAPI.album_tracks(album['id'])
-            track_ids = []
-            for track in tracks['items']:
-                track_ids.append(track['id'])
-            while tracks['next']:
-                tracks = SpotifyAPI.next(tracks)
-                for track in tracks['items']:
-                    track_ids.append(track['id'])
-            SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
+            count = add_album_to_playlist(album,playlist)
 
-            message = f"Added {len(track_ids)} tracks to playlist {playlist['name']}."
+            message = f"Added {count} tracks to playlist {playlist['name']}."
 
             if 'watchlist_artist' in params and 'watchlist_album' in params:
                 entry = {'track': '*', 'artist': params['watchlist_artist'][0], 'album': params['watchlist_album'][0] }
