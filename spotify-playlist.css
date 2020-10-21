@@ -65,45 +65,54 @@ body {
 }
 
 .album-container {
+    display: flex;
+    flex-direction: row;
 /*    border: 3px solid #fff;*/
     padding: 20px;
 }
 
 .album-image {
-    width: 25%;
-    float: left;
+    width: 300px;
+/*    float: left;*/
     padding: 20px;
 /*    border: 2px solid red;*/
 } 
+.album-subcontainer {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
 .album-header {
-    width: 75%;
-    float: left;
+    display: flex;
+    flex-direction: row;
+/*    width: 75%;
+    float: left;*/
     padding: 0px;
 /*    border: 2px solid red;*/
 } 
 .album-header .album-details {
-    width: 25%;
-    float: left;
+/*    width: 25%;
+    float: left;*/
     padding: 20px;
 /*    border: 2px solid red;*/
 } 
 .album-header .album-actions {
-    width: 75%;
-    float: right;
+/*    width: 75%;
+    float: right;*/
     padding: 20px;
 /*    border: 2px solid red;*/
 } 
 .album-container .album-tracklist {
-    width: 75%;
-    float: left;
+/*    width: 75%;
+    float: left;*/
     padding: 20px;
 /*    border: 2px solid red;*/
 } 
 
-.album-container .album-tracklist table { width: 100%; }
+.album-container .album-tracklist table { /*width: 100%;*/ table-layout: fixed;}
 .album-container .album-tracklist .track-number { width: 5%; }
 .album-container .album-tracklist .play-count { width: 5%; }
-.album-container .album-tracklist .track-name { width: 25%; }
+.album-container .album-tracklist .track-name { width: 15%; }
 .album-container .album-tracklist .artist { width: 15%; }
 .album-container .album-tracklist .album { width: 15%; }
 .album-container .album-tracklist .playlist { width: 15%; }
@@ -115,11 +124,12 @@ body {
 }
 
 .playlist-view .album-tracklist {
-    width: 100%;
-    float: left;
+/*    width: 100%;
+    float: left;*/
     padding: 20px;
 /*    border: 2px solid red;*/
 } 
+
 .playlist-view .album-tracklist table { width: 100%; }
 .playlist-view .album-tracklist .track-number { width: 1%; }
 .playlist-view .album-tracklist .play-count { width: 2%; }
