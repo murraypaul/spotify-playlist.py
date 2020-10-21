@@ -1402,11 +1402,22 @@ def init_search_overrides():
         return None
     print(f"Read {len(SearchOverrides)} overrides from file")
 
+def get_playlist_tracks(playlist_id):
+    if playlist_id in PlaylistDetailsCache:
+        return PlaylistDetailsCache['playlist_id']['tracks']
+    else:
+        playlist = SpotifyAPI.playlist(playlist_id)
+        return playlist['tracks']
+
 def init_playlist_cache_playlist_track(playlist,track):
-    track_id = track['track']['id']
-    playlist_id = playlist['id']
-    if track_id != None:
-        PlaylistDetailsCache[playlist_id]['tracks'].append(track_id)
+    if 'track' in track:
+        track = track['track']
+    if 'id' in track:
+        track_id = track['id']
+        if track_id != None:
+#            print(f"Adding track {track_id}")
+            playlist_id = playlist['id']
+            PlaylistDetailsCache[playlist_id]['tracks'].append(track_id)
 
 def init_playlist_cache_playlist(playlist):
 #    print(f"Processing playlist {playlist['name']}")
@@ -1416,19 +1427,23 @@ def init_playlist_cache_playlist(playlist):
 #            init_playlist_cache_purge_tracklist_playlist(playlist['id'])
         else:
             PlaylistDetailsCache[playlist['id']]['active'] = True
-#            print("Using cached data")
+#            print(f"Using cached data for playlist {playlist['name']}")
             return None
 
     PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'uri': playlist['uri'], 'snapshot_id': playlist['snapshot_id'], 'owner_id': playlist['owner']['id'], 'tracks': [], 'active': True }
 
     user_id = SpotifyAPI.me()['id']
-    tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
-    for track in tracks['items']:
-        init_playlist_cache_playlist_track(playlist,track)
-    while tracks['next']:
-        tracks = SpotifyAPI.next(tracks)
-        for track in tracks['items']:
+    if playlist['owner']['id'] != user_id:
+        tracks = SpotifyAPI.playlist(playlist['id'])['tracks']['items']
+    else:
+        tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)['items']
+    while tracks:
+        for track in tracks:
             init_playlist_cache_playlist_track(playlist,track)
+        if 'next' in tracks and tracks['next']:
+            tracks = SpotifyAPI.next(tracks)['items']
+        else:
+            tracks = None
 
 def init_playlist_cache_purge_tracklist_playlist(playlist_id):
     for track_id in TrackPlaylistCache:
@@ -1469,11 +1484,30 @@ def init_playlist_cache():
         for playlist in playlists['items']:
             init_playlist_cache_playlist(playlist)
 
+    # Might have special non-user playlists
+    for playlist_id in PlaylistDetailsCache:
+        if PlaylistDetailsCache[playlist_id]['owner_id'] != user_id and not PlaylistDetailsCache[playlist_id]['active']:
+            playlist = SpotifyAPI.playlist(playlist_id)
+            if playlist != None:
+                init_playlist_cache_playlist(playlist)
+
     init_playlist_cache_process()
 
     init_playlist_cache_to_file()
 
 def init_playlist_cache_from_file():
+    try:
+        with open(ConfigFolder / 'playlist_cache.add','r') as cachefile:
+            for line in cachefile:
+                line = line.strip()
+                data = line.split(';; ')
+                if len(data) >= 5:
+                    PlaylistDetailsCache[data[0]] = { 'name': data[1], 'uri': data[2], 'snapshot_id': data[3], 'owner_id': data[4], 'tracks': [], 'active': False }
+                else:
+                    print(f"Error reading {data}")
+    except FileNotFoundError:
+        pass
+
     try:
         with open(ConfigFolder / 'playlist_cache.txt','r') as cachefile:
             for line in cachefile:
@@ -1483,6 +1517,8 @@ def init_playlist_cache_from_file():
                     PlaylistDetailsCache[data[0]] = { 'name': data[1], 'uri': data[2], 'snapshot_id': data[3], 'owner_id': data[4], 'tracks': [], 'active': False }
                     for i in range(5,len(data)):
                         PlaylistDetailsCache[data[0]]['tracks'].append(data[i])
+                else:
+                    print(f"Error reading {data}")
     except FileNotFoundError:
         return None
 
@@ -2566,7 +2602,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b'<select name="playlist" id="playlist">\n')
         for playlist_id in PlaylistDetailsCache:
             entry = PlaylistDetailsCache[playlist_id]
-            if entry['owner_id'] != user_id:
+            if entry['owner_id'] != user_id and entry['owner_id'] != 'spotify':
                 continue
             if entry['active' ] == False:
                 continue
@@ -2624,13 +2660,13 @@ class web_server(BaseHTTPRequestHandler):
                                     SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(user_id,playlist['id'],tracks_to_remove)
 
                                     if new_album_count > firstN:
-                                        break;
+                                        break
                                     album = track['track']['album']
                                     first_album_tracks = []
                                     first_album_tracks.append(track)
 
                             if new_album_count > firstN:
-                                break;
+                                break
                             elif tracks['next']:
                                 tracks = SpotifyAPI.next(tracks)
                             else:
@@ -2641,8 +2677,37 @@ class web_server(BaseHTTPRequestHandler):
                                     for remove_track in first_album_tracks:
                                         tracks_to_remove.append(remove_track['track']['id'])
                                     SpotifyAPI.user_playlist_remove_all_occurrences_of_tracks(user_id,playlist['id'],tracks_to_remove)
-                                break;
-                message = message + "</ul>"
+                                break
+                message = message + "</ul>"            
+                message = message.encode('latin-1','xmlcharrefreplace')
+                message = quote_plus(message)
+
+                print(message)
+                self.send_response(302)
+                self.send_header('Location', f"/playlists?app=spotify&playlist={playlist['id']}&message={message}")
+                self.end_headers()
+                return None
+
+            elif action == 'duplicate':
+                old_playlist = SpotifyAPI.playlist(params['playlist'][0])
+                track_ids = []
+                tracks = old_playlist['tracks']
+                while tracks:
+                    for track in tracks['items']:
+                        track_ids.append(track['track']['id'])
+                    if tracks['next']:
+                        tracks = SpotifyAPI.next(tracks)
+                    else:
+                        tracks = None
+                old_name = old_playlist['name']
+                if len(old_name) > 12 and old_name[-12] == '(' and old_name[-1] == ')':
+                    old_name = old_name[0:-13]
+                playlist = SpotifyAPI.user_playlist_create( user_id, old_name + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')', public=False )
+                playlist_id = playlist['id']
+                SpotifyAPI.user_playlist_add_tracks( user_id, playlist_id, track_ids )
+
+                message = f"Created playlist {playlist['name']} with {len(track_ids)} tracks."
+                
                 message = message.encode('latin-1','xmlcharrefreplace')
                 message = quote_plus(message)
 
@@ -2654,11 +2719,20 @@ class web_server(BaseHTTPRequestHandler):
 
         self.do_GET_playlists_add_header()
 
+        if playlist['owner']['id'] == user_id:
+            self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
+            self.wfile.write(b'<label for="playlist">Delete first albums from playlist:</label>')
+            self.wfile.write((f"<input type='number' name='firstN' id='firstN' min='1'>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='app' value='spotify'>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='action' value='delete-first-N'>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='playlist' value='{playlist['id']}'>\n").encode("utf-8"))
+    #                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'>\n").encode("utf-8"))
+            self.wfile.write(b"<input type='submit' value='Submit'>")
+            self.wfile.write(b"</form>\n")
         self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
-        self.wfile.write(b'<label for="playlist">Delete first albums from playlist:</label>')
-        self.wfile.write((f"<input type='number' name='firstN' id='firstN' min='1'>\n").encode("utf-8"))
+        self.wfile.write(b'<label for="playlist">Duplicate playlist:</label>')
         self.wfile.write((f"<input type='hidden' name='app' value='spotify'>\n").encode("utf-8"))
-        self.wfile.write((f"<input type='hidden' name='action' value='delete-first-N'>\n").encode("utf-8"))
+        self.wfile.write((f"<input type='hidden' name='action' value='duplicate'>\n").encode("utf-8"))
         self.wfile.write((f"<input type='hidden' name='playlist' value='{playlist['id']}'>\n").encode("utf-8"))
 #                self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'>\n").encode("utf-8"))
         self.wfile.write(b"<input type='submit' value='Submit'>")
@@ -2666,10 +2740,14 @@ class web_server(BaseHTTPRequestHandler):
 
 
         self.wfile.write(b"<div class='playlist-view'>")
+        self.wfile.write(b"<div class='playlist-description'>")
+        self.wfile.write((f"{playlist['description']}").encode("utf-8"))
+        self.wfile.write(b"</div>")
         self.wfile.write(b"<div class='album-tracklist'>")
         self.wfile.write(b"<table>\n")
         i = 0
-        tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
+        tracks = playlist['tracks']
+#        tracks = SpotifyAPI.user_playlist_tracks(SpotifyAPI.me()['id'],playlist['id'],limit=50)
         select_duplicate(tracks['items'],'','','',False,i)
         i = i + len(tracks['items'])
         while tracks['next']:
