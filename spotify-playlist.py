@@ -1268,35 +1268,38 @@ def init_last_fm_recent_cache():
     global LastFMRecentTrackCache
     LastFMRecentTrackCache = {}
     orig_timestamp = None
-    if Args.last_fm_recent_count > 0:
-        recent_tracks = LastFMUser.get_recent_tracks(limit=Args.last_fm_recent_count)
-    else:
-        orig_timestamp = init_last_fm_recent_cache_from_file()
-        recent_tracks = LastFMUser.get_recent_tracks(limit=None,time_from=orig_timestamp)
-    print(f"Retrieved {len(recent_tracks)} from Last.FM")
-    latest_timestamp = None
-    for i, track in enumerate(recent_tracks):
-#        pprint.pprint(track)
-        if track == None or track.track == None or track.track.artist == None or track.track.artist.name == None or track.track.title == None:
-            print(f"Error with track {i}.")
-            pprint.pprint(track)
+    try:
+        if Args.last_fm_recent_count > 0:
+            recent_tracks = LastFMUser.get_recent_tracks(limit=Args.last_fm_recent_count)
         else:
-# Oldest scrobbles have no album details?
-            if latest_timestamp == None:
-                latest_timestamp = track.timestamp
-            album = track.album
-            if album == None:
-                album = "";
-            entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=track.track.artist.name.upper(),track=track.track.title.upper())
-            if entry in LastFMRecentTrackCache:
-                LastFMRecentTrackCache[entry] = LastFMRecentTrackCache[entry] + 1
+            orig_timestamp = init_last_fm_recent_cache_from_file()
+            recent_tracks = LastFMUser.get_recent_tracks(limit=None,time_from=orig_timestamp)
+        print(f"Retrieved {len(recent_tracks)} from Last.FM")
+        latest_timestamp = None
+        for i, track in enumerate(recent_tracks):
+    #        pprint.pprint(track)
+            if track == None or track.track == None or track.track.artist == None or track.track.artist.name == None or track.track.title == None:
+                print(f"Error with track {i}.")
+                pprint.pprint(track)
             else:
-                LastFMRecentTrackCache[entry] = 1
-    if latest_timestamp == None:
-        latest_timestamp = orig_timestamp
-    if Args.last_fm_recent_count < 0 and len(recent_tracks) > 0:
-#        print(f"New timestamp is {latest_timestamp}")
-        init_last_fm_recent_cache_to_file(latest_timestamp)
+    # Oldest scrobbles have no album details?
+                if latest_timestamp == None:
+                    latest_timestamp = track.timestamp
+                album = track.album
+                if album == None:
+                    album = "";
+                entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=track.track.artist.name.upper(),track=track.track.title.upper())
+                if entry in LastFMRecentTrackCache:
+                    LastFMRecentTrackCache[entry] = LastFMRecentTrackCache[entry] + 1
+                else:
+                    LastFMRecentTrackCache[entry] = 1
+        if latest_timestamp == None:
+            latest_timestamp = orig_timestamp
+        if Args.last_fm_recent_count < 0 and len(recent_tracks) > 0:
+    #        print(f"New timestamp is {latest_timestamp}")
+            init_last_fm_recent_cache_to_file(latest_timestamp)
+    except pylast.MalformedResponseError:
+        pass
 
 def init_last_fm_recent_cache_from_file():
     last_timestamp = None
@@ -1434,21 +1437,21 @@ def init_playlist_cache_playlist(playlist):
 
     user_id = SpotifyAPI.me()['id']
     if playlist['owner']['id'] != user_id:
-        tracks = SpotifyAPI.playlist(playlist['id'])['tracks']['items']
+        tracks = { 'items': SpotifyAPI.playlist(playlist['id'])['tracks'] }
     else:
-        tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)['items']
+        tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
     while tracks:
-        for track in tracks:
+        for track in tracks['items']:
             init_playlist_cache_playlist_track(playlist,track)
         if 'next' in tracks and tracks['next']:
-            tracks = SpotifyAPI.next(tracks)['items']
+            tracks = SpotifyAPI.next(tracks)
         else:
             tracks = None
 
 def init_playlist_cache_purge_tracklist_playlist(playlist_id):
     for track_id in TrackPlaylistCache:
         if playlist_id in TrackPlaylistCache[track_id]:
-            TrackPlaylistCache[track_id].remove(playlist_id)
+            TrackPlaylistCache[track_id][:] = [pid for pid in TrackPlaylistCache[track_id] if pid != playlist_id]
 
 def init_playlist_cache_purge_tracklist():
     for playlist_id in PlaylistDetailsCache:
@@ -1458,6 +1461,7 @@ def init_playlist_cache_process_playlist(playlist_id):
     if not PlaylistDetailsCache[playlist_id]['active']:
         print(f"Playlist {PlaylistDetailsCache[playlist_id]['name']} is no longer availble on Spotify, ignoring")
     else:
+#        count = 0
         for track_id in PlaylistDetailsCache[playlist_id]['tracks']:
             if track_id == None:
                 continue
@@ -1465,6 +1469,8 @@ def init_playlist_cache_process_playlist(playlist_id):
                 TrackPlaylistCache[track_id].append(playlist_id)
             else:
                 TrackPlaylistCache[track_id] = [playlist_id]
+#            count = count + 1
+#        print(f"Added playlist {playlist_id}:{PlaylistDetailsCache[playlist_id]['name']} to {count} tracks")
 
 def init_playlist_cache_process():
     for playlist_id in PlaylistDetailsCache:
@@ -1987,14 +1993,19 @@ class web_server(BaseHTTPRequestHandler):
                     message = message[2:-1]
                 self.wfile.write((f"<h3>{message}</h3>").encode("utf-8"))
 
+    def getAlbumTarget(self,album):
+        if 'target' in album:
+            return "album_" + album['target']
+        elif 'id' in album:
+            return "album_" + album['id']
+        elif 'name' in album:
+            return "album_" + quote_plus(album['name'])
+        else:
+            return "album_Unknown"
+
     def addAlbum_Container_Start(self,album):
         self.wfile.write(b"<div class='album-container'>")
-        if 'target' in album:
-            self.wfile.write((f"<a id='{album['target']}'></a>").encode("utf-8"))
-        elif 'id' in album:
-            self.wfile.write((f"<a id='album_{album['id']}'></a>").encode("utf-8"))
-        elif 'name' in album:
-            self.wfile.write((f"<a id='album_{quote_plus(album['name'])}'></a>").encode("utf-8"))
+        self.wfile.write((f"<a id='{self.getAlbumTarget(album)}'></a>").encode("utf-8"))
 
     def addAlbum_Header_Start(self):
         self.wfile.write(b"<div class='album-header'>")
@@ -2137,6 +2148,7 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
             self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='return_target' value='{self.getAlbumTarget(album)}'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
 
@@ -2151,6 +2163,7 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
             self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='return_target' value='{self.getAlbumTarget(album)}'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
 
@@ -2165,6 +2178,7 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write(b"</select>\n")
             self.wfile.write(b"<input type='submit' value='Submit'>")
             self.wfile.write((f"<input type='hidden' name='app' value='spotify'</input>\n").encode("utf-8"))
+            self.wfile.write((f"<input type='hidden' name='return_target' value='{self.getAlbumTarget(album)}'</input>\n").encode("utf-8"))
             self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
             self.wfile.write(b"</form>")
 
@@ -2354,8 +2368,10 @@ class web_server(BaseHTTPRequestHandler):
   </div>
 </div>''')
 
-        if self.parsed_path.query.startswith("search="):
-            search_term = unquote_plus(self.parsed_path.query[7:])
+        params = parse_qs(self.parsed_path.query)
+
+        if 'search' in params:
+            search_term = params['search'][0]
             if " - " in search_term:
                 data = search_term.split("-")
                 artist = data[0].strip()
@@ -2476,13 +2492,17 @@ class web_server(BaseHTTPRequestHandler):
             message = f"Added {count} tracks to playlist {playlist['name']}."
 
             if 'watchlist_artist' in params and 'watchlist_album' in params:
-                entry = {'track': '*', 'artist': params['watchlist_artist'][0], 'album': params['watchlist_album'][0] }
+                artist = unquote_plus( params['watchlist_artist'][0] )
+                album = unquote_plus( params['watchlist_album'][0] )
+                entry = {'track': '*', 'artist': artist, 'album': album }
                 if in_watchlist(entry):
                     init_watchlist_to_file()
                     if remove_from_watchlist(entry):
                         message = message + f"\nRemoved {entry['album']} by {entry['artist']} from watchlist."
                     else:
                         message = message + f"\nFailed to remove {entry['album']} by {entry['artist']} from watchlist."
+                else:
+                    message = message + f"\nError: {entry['album']} by {entry['artist']} not found in watchlist."
         else:
             message = "Error in parameters"
 
