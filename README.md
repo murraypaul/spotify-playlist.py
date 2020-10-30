@@ -52,7 +52,7 @@ Add a line to overrides.txt in this format:
 
     *;; Virgin Steele;; The House Of Atreus Act I;; spotify:album:47CVkzdB6oe4SH1OlPljD3
     *;; Virgin Steele;; The House Of Atreus Act II';; !None
-    *;; Periphery;; Juggernaut: Alpha & Omega,spotify:album:5oF7PocZron3xn8Pxhofgx;; spotify:album:2vUuAbaoqFPcbp851dRXFt
+    *;; Periphery;; Juggernaut: Alpha & Omega;; spotify:album:5oF7PocZron3xn8Pxhofgx;; spotify:album:2vUuAbaoqFPcbp851dRXFt
     *;; Periphery;; Periphery II: This Time It\'s Personal;; spotify:album:5ebIq78IE2Pi9vyJOaYL4A
 
 The first line maps input artist and album names to a Spotify album URI.
