@@ -14,6 +14,8 @@ For Last.FM integration you will need to do the same for their API.
 
 This script relies on Spotipy to do all of the real work, get it from: https://github.com/plamere/spotipy
 
+Last.FM integration is handled by: https://github.com/pylast/pylast
+
 # Main functions
 
 ## Search
