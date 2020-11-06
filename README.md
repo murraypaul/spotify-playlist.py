@@ -38,7 +38,7 @@ You can add an album to a playlist with:
 
     python spotify-playlist.pl --add --artist Nirvana --album Nevermind --playlist <playlist name>
  
-If you add --interactive then the script will prompt when there are duplicated to allow you which one to add.
+If you add --interactive then the script will prompt when there are duplicates to allow you which one to add.
 
 If you add --dryrun then the script will not actually add anything, just say what would be added.
 
@@ -123,7 +123,7 @@ By adding --last-fm to a command, and entering Last.FM api details in credential
 can instead use Last.FM scrobbling data.
 
 By default all scrobbled data will be loaded the first time you use the --last-fm option,
-and will then be cached in a local file. Subsequent calls will only load scrobbled since the
+and will then be cached in a local file. Subsequent calls will only load scrobbles since the
 previous call. This means that the very first time you run the script with the --last-fm 
 option, expect it to take several minutes to load, if you have a large Last.FM history.
 
