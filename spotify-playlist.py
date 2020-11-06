@@ -70,10 +70,10 @@ def check_IP(ip):
 def override_IP_block(ip,value):
     IPBlacklist[ip] = value
 
-def read_URL(url):
+def read_URL(url,cacheTimeout=URLCacheTimeout):
     timenow = int(time.time())
     cacheEntry = URLCache.get(url,[-1,None])
-    if cacheEntry[1] == None or cacheEntry[0] < timenow - URLCacheTimeout:
+    if cacheEntry[1] == None or cacheEntry[0] < timenow - cacheTimeout:
 #        print(f"No or expired cache for {url}")
         page = requests.get(url)
         URLCache[url] = [timenow,page.content]
@@ -170,13 +170,25 @@ def name_matches(left,right):
     #    print("Comparing '%s' with '%s'" % (left, right))
     return left == right
 
-def get_search_exact(track_name,artist,album):
+def get_search_exact(track_name,artist,album,free_text=''):
     if Args.show_search_details:
         print("Searching for (%s;%s;%s)" % (track_name,artist,album))
     market = 'from_token'
     if Args.market:
         market = Args.market
-    if track_name == '*':
+    if free_text != '':
+        search_str = free_text
+        try:
+            if Args.no_market:
+                results = SpotifyAPI.search(search_str,type='artist,album')
+            else:
+                results = SpotifyAPI.search(search_str,type='artist,album',market=market)
+        except spotipy.exceptions.SpotifyException:
+            return []
+        if Args.show_search_details:
+            print("Search '%s' returned %d results" % (search_str, len(results['albums']['items'])))
+        return results['albums']['items']
+    elif track_name == '*':
         search_str = "artist:%s album:%s" % (artist, album)
         try:
             if Args.no_market:
@@ -2295,11 +2307,11 @@ class web_server(BaseHTTPRequestHandler):
 
         self.addAlbum_Container_End()
 
-    def getResults(self,track_name,artist,album):
-        results = get_search_exact('*',artist,album)
+    def getResults(self,track_name,artist,album,free_text=''):
+        results = get_search_exact('*',artist,album,free_text)
 
         # If not found, try various changes
-        if len(results) == 0:
+        if len(results) == 0 and free_text == '':
             if remove_punctuation(artist) != artist:
                 results_artist_punctuation = get_search_exact('*',remove_punctuation(artist),album)
                 results.extend(results_artist_punctuation)
@@ -2383,6 +2395,15 @@ class web_server(BaseHTTPRequestHandler):
                 for album in results:
                     self.wfile.write(b"<hr/>")
                     self.addAlbum(album)
+            else:
+                data = search_term
+
+                self.wfile.write((f"<h2>Results for {search_term}</h2>\n").encode("utf-8"))
+                results = self.getResults('*','*','*',search_term)
+
+                for album in results:
+                    self.wfile.write(b"<hr/>")
+                    self.addAlbum(album)
 
 
         self.wfile.write(b"</body>\n")
@@ -2423,7 +2444,13 @@ class web_server(BaseHTTPRequestHandler):
 
         self.showMessage(params)
 
-        data = read_URL("http://www.metalstorm.net/events/new_releases.php")
+# Do not cache the recent releases page, we expect it to change frequently
+#        data = read_URL("http://www.metalstorm.net/events/new_releases.php")
+#        page = requests.get("http://www.metalstorm.net/events/new_releases.php")
+#        data = html.fromstring(page.content)
+# Do cache it, but refresh more frequently
+        data = read_URL("http://www.metalstorm.net/events/new_releases.php",60*60)
+
         tracks_to_import = get_tracks_to_import_html_metalstorm_releases_extended(data)
 
         last_release_date = ""
