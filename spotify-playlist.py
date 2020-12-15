@@ -13,6 +13,7 @@ from sanitize_filename import sanitize
 from pathlib import Path
 import random
 import pickle
+import base64
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -103,6 +104,7 @@ def get_args():
     cmdgroup.add_argument('--create', required=False, action="store_true", help='Create playlist')
     cmdgroup.add_argument('--delete', required=False, action="store_true", help='Delete playlist')
     cmdgroup.add_argument('--set-description', required=False, action="store_true", help='Set description for playlist')
+    cmdgroup.add_argument('--set-image', required=False, action="store_true", help='Set cover image for playlist')
     cmdgroup.add_argument('--list', required=False, action="store_true", help='List items from playlist')
     cmdgroup.add_argument('--find', required=False, action="store_true", help='Search for album (requires --artist and --album, --track is optional)')
     cmdgroup.add_argument('--add', required=False, action="store_true", help='Add tracks to end of playlist (requires --artist and --album, --track is optiona)')
@@ -293,7 +295,10 @@ def print_track(result,i,album=None):
             WebOutput.wfile.write((f"<td class='track-name'>{track_name}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='artist'>{artists_with_links}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='album'><a href='{album_link}'><i class='fas fa-link'></i></a>{album_name}</td>\n").encode("utf-8"))
-        WebOutput.wfile.write((f"<td class='playlist'>").encode("utf-8"))
+        if len(playlists) > 0:
+            WebOutput.wfile.write((f"<td class='playlist-present'>").encode("utf-8"))
+        else:
+            WebOutput.wfile.write((f"<td class='playlist-absent'>").encode("utf-8"))
         for playlist in playlists:
             WebOutput.wfile.write((f"{playlist}<br/>").encode("utf-8"))
         WebOutput.wfile.write((f"</td>\n").encode("utf-8"))
@@ -1777,7 +1782,7 @@ def main():
     client_id = 'your-client-id'
     client_secret = 'your-client-secret'
     redirect_uri = 'http://localhost/'
-    scope = "user-read-private user-library-read playlist-read-private playlist-modify-private user-read-recently-played"
+    scope = "user-read-private user-library-read playlist-read-private playlist-modify-private user-read-recently-played ugc-image-upload"
     username = 'your-username'
     last_fm_client_id = 'your-last-fm-client-id'
     last_fm_client_secret = 'your-last-fm-client-secret'
@@ -1824,6 +1829,16 @@ def main():
             playlist = get_playlist(Args.playlist)
             if playlist:
                 SpotifyAPI.user_playlist_change_details(user_id,playlist['id'],description=Args.set_description)
+            else:
+                print(f"Playlist {Args.playlist} not found")
+    elif Args.set_image:
+        print("Setting playlist image")
+        if Args.playlist and Args.file:
+            playlist = get_playlist(Args.playlist)
+            if playlist:
+                with open(Args.file,"rb") as image_file:
+                    imgbase64 = base64.b64encode(image_file.read())
+                SpotifyAPI.playlist_upload_cover_image(playlist['id'],imgbase64)
             else:
                 print(f"Playlist {Args.playlist} not found")
     elif Args.find:

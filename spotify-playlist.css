@@ -128,15 +128,18 @@ body {
     float: left;*/
     padding: 20px;
 /*    border: 2px solid red;*/
+    font-size: 100%;
 } 
 
 .playlist-view .album-tracklist table { width: 100%; }
+/*td { border-bottom: solid 2px grey; }*/
 .playlist-view .album-tracklist .track-number { width: 1%; }
-.playlist-view .album-tracklist .play-count { width: 2%; }
+.playlist-view .album-tracklist .play-count { width: 2em; }
 .playlist-view .album-tracklist .track-name { width: 25%; }
 .playlist-viwe .album-tracklist .artist { width: 15%; }
 .playlist-view .album-tracklist .album { width: 23%; }
-.playlist-view .album-tracklist .playlist { width: 33%; }
+.playlist-view .album-tracklist .playlist-absent { width: 30%; font-size: 90%; }
+.playlist-view .album-tracklist .playlist-present { width: 30%; font-size: 90%; border-top: solid 1px grey; border-bottom: solid 1px grey; }
 .playlist-view .album-tracklist .track-uri { display: none; width: 1%; }
  
 .genre-good { color: green; }
