@@ -120,6 +120,7 @@ def get_args():
     urltypegroup.add_argument('--metalstorm-top', required=False, action="store_true", help='Url is MetalStorm Top-X list')
     urltypegroup.add_argument('--metalstorm-releases', required=False, action="store_true", help='Url is MetalStorm new releases list')
     urltypegroup.add_argument('--metalstorm-list', required=False, action="store_true", help='Url is MetalStorm user created list')
+    urltypegroup.add_argument('--metalstorm-notmetal', required=False, action="store_true", help='Url is MetalStorm This Isn\'t Metal! list')
 
     parser.add_argument('--playlist', required=False, help='Only songs played from specified playlist')
 
@@ -141,6 +142,7 @@ def get_args():
     parser.add_argument('--show-playlist-membership', required=False, action="store_true", help='Show which playlists tracks belong to')
     parser.add_argument('--show-playlist-onlyowned', required=False, action="store_true", help='Only show playlist membership for playlists created by the user')
     parser.add_argument('--no-overrides', required=False, action="store_true", help='Do not use overrides file')
+    parser.add_argument('--public', required=False, action="store_true", help='Create playlists with the public flag set')
 
     marketgroup = parser.add_mutually_exclusive_group(required=False)
     marketgroup.add_argument('--no-market', required=False, action="store_true", help='Do not limit searches by user market')
@@ -915,7 +917,10 @@ def find_artist(artist,prompt_unique):
         return None
 
 def add_album_to_playlist(album,playlist):
-    tracks = SpotifyAPI.album_tracks(album['id'])
+    return add_album_to_playlist_byid(album['id'],playlist)
+
+def add_album_to_playlist_byid(albumid,playlist):
+    tracks = SpotifyAPI.album_tracks(albumid)
     track_ids = []
     for track in tracks['items']:
         track_ids.append(track['id'])
@@ -969,6 +974,10 @@ def get_playlist_name_html_metalstorm_releases(data):
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
 
+def get_playlist_name_html_metalstorm_notmetal(data):
+    title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
+    return 'MetalStorm: ' + title
+
 def get_playlist_name(data):
     if Args.file:
         return get_playlist_name_csv(data)
@@ -978,6 +987,8 @@ def get_playlist_name(data):
         return get_playlist_name_html_metalstorm_list(data).replace("  "," ")
     elif Args.metalstorm_releases:
         return get_playlist_name_html_metalstorm_releases(data).replace("  "," ")
+    elif Args.metalstorm_notmetal:
+        return get_playlist_name_html_metalstorm_notmetal(data).replace("  "," ")
     else:
         return None
 
@@ -1046,6 +1057,83 @@ def get_tracks_to_import_html_metalstorm_releases(data):
 
     return tracks
 
+def get_tracks_to_import_html_metalstorm_notmetal_spotifyonly(data):
+    lines = data.xpath('//*[@id="page-content"]/div/div/div/a')
+
+    tracks = []
+    for line in lines:
+        href = line.get("href")
+        if not "https://open.spotify.com/album" in href:
+            continue
+
+        albumid = href.rpartition("/")[2].strip()
+#        print("(%s;%s)" % (href,albumid))
+        track = [albumid]
+        tracks.append(track)
+
+    return tracks
+
+def get_tracks_to_import_html_metalstorm_notmetal(data):
+    lines = data.xpath('//*[@id="page-content"]/div/div/div[@class="right-col"]')
+    print(f"Read {len(lines)} lines")
+
+    tracks = []
+    currenturi = ""
+    currentartist = ""
+    currentalbum = ""
+    for line in lines[0].getchildren():
+        text = line.text_content().strip()
+        if len(text) == 0:
+            continue;
+#        print(etree.tostring(line))
+        if line.find('img') != None:
+#            print("found img")
+            # new album? (eg Jan 2019)
+            line_text = line.find("font").text_content().strip()
+            if ' -' in line_text:
+                if currentartist != "" and currentalbum != "":
+                    print("(%s;%s;%s)" % (currenturi, currentartist, currentalbum))
+                    if currenturi != "":
+                        track = ['spotify:album:' + currenturi, currentartist, currentalbum]
+                    else:
+                        track = ['*', currentartist, currentalbum]
+                    tracks.append(track)
+                currentartist = line_text.partition(" - ")[0].strip()
+                currentalbum = line_text.partition(" - ")[2].strip()
+                currenturi = ""
+        elif line.tag == 'font':
+#            print("found font")
+            # new album? (eg Feb 2019)
+            line_text = line.text_content().strip()
+#            print(f"{line_text}")
+            if ' -' in line_text:
+                if currentartist != "" and currentalbum != "":
+                    print("(%s;%s;%s)" % (currenturi, currentartist, currentalbum))
+                    if currenturi != "":
+                        track = ['spotify:album:' + currenturi, currentartist, currentalbum]
+                    else:
+                        track = ['*', currentartist, currentalbum]
+                    tracks.append(track)
+                currentartist = line_text.partition(" - ")[0].strip()
+                currentalbum = line_text.partition(" - ")[2].strip()
+                currenturi = ""
+        else:
+            href = line.get("href")
+            if href != None:
+#                print("found href")
+                if "https://open.spotify.com/album" in href:
+                     currenturi = href.rpartition("/")[2].strip()
+
+    if currentartist != "" and currentalbum != "":
+        if currenturi != "":
+            track = ['spotify:album:' + currenturi, currentartist, currentalbum]
+        else:
+            track = ['*', currentartist, currentalbum]
+        tracks.append(track)
+
+    return tracks
+
+
 def get_tracks_to_import_html_metalstorm_releases_extended(data):
     lines = data.xpath('//*[@id="page-content"]//div[@class="album-title"]/span')
 
@@ -1105,6 +1193,8 @@ def get_tracks_to_import(data):
         return get_tracks_to_import_html_metalstorm_list(data)
     elif Args.metalstorm_releases:
         return get_tracks_to_import_html_metalstorm_releases(data)
+    elif Args.metalstorm_notmetal:
+        return get_tracks_to_import_html_metalstorm_notmetal(data)
     else:
         return None
 
@@ -1134,110 +1224,139 @@ def create_playlist():
     user = SpotifyAPI.me()['id']
 
     if not Args.dryrun:
-        playlist = SpotifyAPI.user_playlist_create( user, playlist_name, public=False )
+        playlist = SpotifyAPI.user_playlist_create( user, playlist_name, public=Args.public )
         playlist_id = playlist['id']
+        print(f"Created playlist: {playlist_id}")
 
     for row in tracks_to_import:
-        if len(row) < 3:
+        if len(row) == 1:
+# spotify album id
+            album = read_SpotifyAlbum("spotify:album:" + row[0])
+            if not Args.dryrun:
+                count = add_album_to_playlist(album,playlist)
+                print(f"Added {count} tracks to playlist {playlist['name']}.")
             continue
+        elif len(row) == 2:
+# [spotify album id or ' ', list of alternative urls]
+            if row[0] == ' ':
+                notfound = notfound + 1
+                print(f"Not found: {row[1]}")
+                if playlist_comments_extra != "":
+                    playlist_comments_extra = playlist_comments_extra + ", "
+                if len(row[1]) == 0:
+                    playlist_comments_extra = playlist_comments_extra + row[1][0]
+                else:
+                    playlist_comments_extra = playlist_comments_extra + "("
+                    for url in row[1]:
+                        playlist_comments_extra = playlist_comments_extra + url + " "
+                    playlist_comments_extra = playlist_comments_extra + ")"
+            else:
+                album = read_SpotifyAlbum("spotify:album:" + row[0])
+                if not Args.dryrun:
+                    count = add_album_to_playlist(album,playlist)
+                    print(f"Added {count} tracks to playlist {playlist['name']}.")
+                continue;
+        elif len(row) < 3:
+            continue
+# [trackname or '*',artist,album]
 
         track_name = row[0]
         artist = row[1]
         album = row[2]
+
+        print(f"Trying ({track_name},{artist},{album}")
 
         track_name_orig = track_name
         artist_orig = artist
         album_orig = album
 
         results = [[]]
-        override_results = get_results_from_override(track_name,artist,album)
+        if track_name.startswith('spotify:album:'):
+            if not Args.dryrun:
+                add_album_to_playlist_byid(track_name,playlist)
+            found = found + 1
+        else:
+            override_results = get_results_from_override(track_name,artist,album)
 #        used_override = False
-        if override_results == None:
-            # overriden to skipped
-            print("Search for (%s;%s;%s) skipped by override" % (track_name, artist, album))
-            continue
-        elif len(override_results) > 0 and len(override_results[0]) > 0 and len(override_results[0][1]) > 0:
-            results = []
-            for ai,albumdata in enumerate(override_results):
-                albumuri = albumdata[0]
-                tracks = albumdata[1]
-                for i,trackuri in enumerate(tracks):
+            if override_results == None:
+                # overriden to skipped
+                print("Search for (%s;%s;%s) skipped by override" % (track_name, artist, album))
+                continue
+            elif len(override_results) > 0 and len(override_results[0]) > 0 and len(override_results[0][1]) > 0:
+                results = []
+                for ai,albumdata in enumerate(override_results):
+                    albumuri = albumdata[0]
+                    tracks = albumdata[1]
+                    for i,trackuri in enumerate(tracks):
 #                    track = SpotifyAPI.track(trackuri)
-                    results.append(trackuri)
-            results = [[results]]
+                        results.append(trackuri)
+                results = [[results]]
 #            pprint.pprint(results)
 #            used_override = True
 
-        result_count = len(results[0])
-        actual_count = result_count
-        if track_name == '*':
-            actual_count = len(results[0])
-
-        if actual_count > 0:
-            print("Search for (%s;%s;%s) overridden with %d tracks" % (track_name, artist, album, len(results[0][0])))
-
-        if actual_count == 0:
-            # GPM and Spotify handle multiple artists differently
-            if "&" in artist:
-                artist = artist.replace("&"," ")
-            # Issue with searching for single-quote in title?
-            if "'" in track_name:
-                track_name = track_name.replace("'"," ")
-            if "'" in album:
-                album = album.replace("'"," ")
-            if "'" in artist:
-                artist = artist.replace("'"," ")
-
-    #        print("Searching for (%s;%s;%s)" % (track_name,artist,album))
-
+            result_count = len(results[0])
+            actual_count = result_count
             if track_name == '*':
-                results = get_results_for_album(artist,album,False,Args.interactive)
-            else:
-                results = get_results_for_track(track_name,artist,album,False,Args.interactive)
+                actual_count = len(results[0])
 
-        result_count = len(results)
-        actual_count = result_count
-        if track_name == '*':
-            actual_count = len(results[0])
+            if actual_count > 0:
+                print("Search for (%s;%s;%s) overridden with %d tracks" % (track_name, artist, album, len(results[0][0])))
 
-        if actual_count != 1:
-            print("Search for (%s;%s;%s) returned %d values" % (track_name, artist, album, actual_count))
             if actual_count == 0:
-                notfound = notfound + 1
-                notfound_list.append("(%s;%s;%s)" % (track_name_orig, artist_orig, album_orig))
-                if playlist_comments_extra != "":
-                    playlist_comments_extra = playlist_comments_extra + ", "
-                if track_name == '*':
-                    playlist_comments_extra = playlist_comments_extra + "%s by %s" % (album_orig, artist_orig)
-                else:
-                    playlist_comments_extra = playlist_comments_extra + "%s from %s by %s" % (track_name_orig,album_orig,artist_orig)
-                if Args.interactive:
-                    input("Press any key to continue")
-            else:
-                results = [results[0]]
-                actual_count = 1
-                duplicate = duplicate + 1
-                duplicate_list.append("(%s;%s;%s)" % (track_name_orig, artist_orig, album_orig))
+                # GPM and Spotify handle multiple artists differently
+                if "&" in artist:
+                    artist = artist.replace("&"," ")
+                # Issue with searching for single-quote in title?
+                if "'" in track_name:
+                    track_name = track_name.replace("'"," ")
+                if "'" in album:
+                    album = album.replace("'"," ")
+                if "'" in artist:
+                    artist = artist.replace("'"," ")
 
-        if actual_count == 1:
-            found = found + 1
-            tids = []
-            if track_name == '*':
-                results = results[0]
-                for tids_for_album in results:
-#                    print("(*;%s;%s) - added %02d tracks" % (artist, album, len(tids_for_album)))
+                if track_name == '*':
+                    results = get_results_for_album(artist,album,False,Args.interactive)
+                else:
+                    results = get_results_for_track(track_name,artist,album,False,Args.interactive)
+
+            result_count = len(results)
+            actual_count = result_count
+            if track_name == '*' or track_name.startswith('spotify:album:'):
+                actual_count = len(results[0])
+
+            if actual_count != 1:
+                print("Search for (%s;%s;%s) returned %d values" % (track_name, artist, album, actual_count))
+                if actual_count == 0:
+                    notfound = notfound + 1
+                    notfound_list.append("(%s;%s;%s)" % (track_name_orig, artist_orig, album_orig))
+                    if playlist_comments_extra != "":
+                        playlist_comments_extra = playlist_comments_extra + ", "
+                    if track_name == '*':
+                        playlist_comments_extra = playlist_comments_extra + "%s by %s" % (album_orig, artist_orig)
+                    else:
+                        playlist_comments_extra = playlist_comments_extra + "%s from %s by %s" % (track_name_orig,album_orig,artist_orig)
+                    if Args.interactive:
+                        input("Press any key to continue")
+                else:
+                    results = [results[0]]
+                    actual_count = 1
+                    duplicate = duplicate + 1
+                    duplicate_list.append("(%s;%s;%s)" % (track_name_orig, artist_orig, album_orig))
+
+            if actual_count == 1:
+                found = found + 1
+                tids = []
+                if track_name == '*':
+                    results = results[0]
+                    for tids_for_album in results:
+                        if not Args.dryrun:
+                            SpotifyAPI.user_playlist_add_tracks( user, playlist_id, tids_for_album )
+                            time.sleep(0.1)
+                else:
+                    for track in results:
+                        tids.append(track['id'])
                     if not Args.dryrun:
-#                        print(f"Adding '{tids_for_album}'")
-                        SpotifyAPI.user_playlist_add_tracks( user, playlist_id, tids_for_album )
-                        time.sleep(0.1)
-#                    elif used_override:
-#                        print(f"Would have added '{tids_for_album}'")
-            else:
-                for track in results:
-                    tids.append(track['id'])
-#                print("(%s;%s;%s) - added %02d tracks" % (track_name, artist, album, len(tids)))
-                if not Args.dryrun:
-                    SpotifyAPI.user_playlist_add_tracks( user, playlist_id, tids )
+                        SpotifyAPI.user_playlist_add_tracks( user, playlist_id, tids )
 
         time.sleep(0.1)
 
@@ -1783,7 +1902,7 @@ def main():
     client_id = 'your-client-id'
     client_secret = 'your-client-secret'
     redirect_uri = 'http://localhost/'
-    scope = "user-read-private user-library-read playlist-read-private playlist-modify-private user-read-recently-played ugc-image-upload"
+    scope = "user-read-private user-library-read playlist-read-private playlist-modify-private playlist-modify-public user-read-recently-played ugc-image-upload"
     username = 'your-username'
     last_fm_client_id = 'your-last-fm-client-id'
     last_fm_client_secret = 'your-last-fm-client-secret'
@@ -2035,7 +2154,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"<div class='album-container'>")
         self.wfile.write((f"<a id='{self.getAlbumTarget(album)}'></a>").encode("utf-8"))
 
-    def addAlbum_Header_Start(self):
+    def aaddAlbum_Header_Start(self):
         self.wfile.write(b"<div class='album-header'>")
 
     def addAlbum_Header_End(self):
