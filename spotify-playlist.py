@@ -1513,6 +1513,7 @@ def init_playlist_cache():
             playlist = SpotifyAPI.playlist(playlist_id)
             if playlist != None:
                 init_playlist_cache_playlist(playlist)
+                init_playlist_cache_to_file()
 
     init_playlist_cache_process()
 
