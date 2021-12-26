@@ -2780,11 +2780,11 @@ class web_server(BaseHTTPRequestHandler):
         self.showMessage(params)
 
         self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
-        self.wfile.write(b'<label for="playlist">Select playlist:</label>')
+        self.wfile.write(b'<label for="playlist">Select user playlist:</label>')
         self.wfile.write(b'<select name="playlist" id="playlist">\n')
         for playlist_id in PlaylistDetailsCache:
             entry = PlaylistDetailsCache[playlist_id]
-            if entry['owner_id'] != user_id and entry['owner_id'] != 'spotify':
+            if entry['owner_id'] != user_id:
                 continue
             if entry['active' ] == False:
                 continue
@@ -2797,8 +2797,26 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"</select>\n")
         self.wfile.write(b"<input type='submit' value='Submit'>")
         self.wfile.write((f"<input type='hidden' name='app' value='spotify'>\n").encode("utf-8"))
-#        self.wfile.write((f"<input type='hidden' name='album' value='{album['id']}'</input>\n").encode("utf-8"))
-#        self.wfile.write((f"<input type='hidden' name='return' value='{self.parsed_path.path}'</input>\n").encode("utf-8"))
+        self.wfile.write(b"</form>\n")
+
+        self.wfile.write((f"<form action='/playlists'>\n").encode("utf-8"))
+        self.wfile.write(b'<label for="playlist">Select system playlist:</label>')
+        self.wfile.write(b'<select name="playlist" id="playlist">\n')
+        for playlist_id in PlaylistDetailsCache:
+            entry = PlaylistDetailsCache[playlist_id]
+            if entry['owner_id'] != 'spotify':
+                continue
+            if entry['active' ] == False:
+                continue
+            selected = ""
+            if playlist_selected == playlist_id:
+                selected = "selected"
+            elif playlist_selected == "" and Args.server_default_playlist == entry['name']:
+                selected = "selected"
+            self.wfile.write((f"<option value='{playlist_id}' {selected}>{entry['name']}</option>\n").encode("utf-8"))
+        self.wfile.write(b"</select>\n")
+        self.wfile.write(b"<input type='submit' value='Submit'>")
+        self.wfile.write((f"<input type='hidden' name='app' value='spotify'>\n").encode("utf-8"))
         self.wfile.write(b"</form>\n")
 
 
