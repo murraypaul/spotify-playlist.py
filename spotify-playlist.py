@@ -1908,7 +1908,7 @@ def main():
     client_id = 'your-client-id'
     client_secret = 'your-client-secret'
     redirect_uri = 'http://localhost/'
-    scope = "user-read-private user-library-read playlist-read-private playlist-modify-private playlist-modify-public user-read-recently-played ugc-image-upload"
+    scope = "user-read-private user-library-read playlist-read-private playlist-modify-private playlist-modify-public user-read-currently-playing user-read-recently-played ugc-image-upload"
     username = 'your-username'
     last_fm_client_id = 'your-last-fm-client-id'
     last_fm_client_secret = 'your-last-fm-client-secret'
@@ -2109,6 +2109,8 @@ class web_server(BaseHTTPRequestHandler):
                     self.do_GET_playlists()
                 elif self.parsed_path.path == "/recent":
                     self.do_GET_recent()
+                elif self.parsed_path.path == "/current":
+                    self.do_GET_current()
                 elif self.parsed_path.path == "/watchlist":
                     self.do_GET_watchlist()
                 elif self.parsed_path.path == "/watchlist_match_only":
@@ -2517,6 +2519,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b'<li><a href="/search?app=spotify">Search</a></li>\n')
         self.wfile.write(b'<li><a href="/releases?app=spotify">MetalStorm New Releases</a></li>\n')
         self.wfile.write(b'<li><a href="/playlists?app=spotify">Playlists</a></li>\n')
+        self.wfile.write(b'<li><a href="/current?app=spotify">Currently Playing</a></li>\n')
         self.wfile.write(b'<li><a href="/recent?app=spotify">Recent Tracks</a></li>\n')
         self.wfile.write(b'<li><a href="/watchlist?app=spotify">Watchlist</a></li>\n')
         self.wfile.write(b'<li><a href="/watchlist_match_only?app=spotify">Watchlist (only matched)</a></li>\n')
@@ -2620,6 +2623,35 @@ class web_server(BaseHTTPRequestHandler):
 
         self.wfile.write(b"</div>")
         self.wfile.write(b"</div>")
+
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
+
+    def do_GET_current(self):
+        self.addTopOfPage("Currently Playing")
+
+        params = parse_qs(self.parsed_path.query)
+
+        self.showMessage(params)
+
+        track_entry = SpotifyAPI.currently_playing()
+#        print(json.dumps(track_entry,indent=4))
+        if track_entry != None and track_entry['item'] != None:
+            track = track_entry['item']
+            self.wfile.write(b"<div class='playlist-view'><div class='album-tracklist'>")
+            self.wfile.write(b"<table>")
+            self.wfile.write(b"<tr>")
+            print_track(track,track['track_number'],track['album'])
+            self.wfile.write(b"</tr>")
+            self.wfile.write(b"</table>")
+            self.wfile.write(b"</div></div>")
+
+            if track_entry['context'] and track_entry['context']['type'] and track_entry['context']['type'] == 'playlist':
+                playlist = SpotifyAPI.playlist(track_entry['context']['uri'])
+                self.wfile.write((f"Playing from playlist <a href='/playlists?app=spotify&playlist={playlist['id']}'>{playlist['name']}</a>").encode("utf-8"))
+
+            if track['album']:
+                self.addAlbum(track['album'])
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
