@@ -245,7 +245,10 @@ def list_to_comma_separated_string(list,key):
         if WebOutput != None and 'uri' in artist:
             artist_uri = artist['uri']
             artist_link = 'http://open.spotify.com/' + artist_uri[8:].replace(':','/')
-            artists_links = artists_links + f"<a href='{artist_link}'><i class='fas fa-link'></i></a>{artist[key]}"
+            artist_name = artist[key]
+            if 'id' in artist:
+                artist_name = f"<a href='/show_artist?artistid={artist['id']}&app=spotify'>{artist_name}</a>"
+            artists_links = artists_links + f"<a href='{artist_link}'><i class='fas fa-link'></i></a>{artist_name}"
         else:
             artists_links = artists_links + artist[key]
     return artists, artists_links
@@ -265,6 +268,9 @@ def print_track(result,i,album=None):
     album_link = album['link'] if 'link' in album else ""
     if album_uri != None:
         album_link = 'http://open.spotify.com/' + album_uri[8:].replace(':','/')
+    my_album_link = album_name
+    if album != None and album['id'] != None:
+        my_album_link = f"<a href='/show_album?albumid={album['id']}&app=spotify'>{album_name}</a>"
     duration_ms = result['duration_ms']
     duration_min = duration_ms / 60000
     duration_totalsec = duration_ms / 1000
@@ -296,7 +302,7 @@ def print_track(result,i,album=None):
         else:
             WebOutput.wfile.write((f"<td class='track-name'>{track_name}</td>\n").encode("utf-8"))
         WebOutput.wfile.write((f"<td class='artist'>{artists_with_links}</td>\n").encode("utf-8"))
-        WebOutput.wfile.write((f"<td class='album'><a href='{album_link}'><i class='fas fa-link'></i></a>{album_name}</td>\n").encode("utf-8"))
+        WebOutput.wfile.write((f"<td class='album'><a href='{album_link}'><i class='fas fa-link'></i></a>{my_album_link}</td>\n").encode("utf-8"))
         if len(playlists) > 0:
             WebOutput.wfile.write((f"<td class='playlist-present'>").encode("utf-8"))
         else:
@@ -2109,6 +2115,10 @@ class web_server(BaseHTTPRequestHandler):
                     self.do_GET_watchlist(True,True)
                 elif self.parsed_path.path == "/watchlist_no_match":
                     self.do_GET_watchlist(True,False)
+                elif self.parsed_path.path == "/show_album":
+                    self.do_GET_show_album()
+                elif self.parsed_path.path == "/show_artist":
+                    self.do_GET_show_artist()
                 else:
                     self.do_GET_error()
         WebOutput = None
@@ -2154,7 +2164,7 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"<div class='album-container'>")
         self.wfile.write((f"<a id='{self.getAlbumTarget(album)}'></a>").encode("utf-8"))
 
-    def aaddAlbum_Header_Start(self):
+    def addAlbum_Header_Start(self):
         self.wfile.write(b"<div class='album-header'>")
 
     def addAlbum_Header_End(self):
@@ -2177,8 +2187,10 @@ class web_server(BaseHTTPRequestHandler):
             self.wfile.write((f"<img src='{url}' width='100%' />").encode("utf-8"))
         self.wfile.write(b"</div>")
 
-    def addAlbum_Details(self,release_date,genres):
+    def addAlbum_Details(self,release_date,genres,show_top_link=None):
         self.wfile.write(b"<div class='album-details'>")
+        if show_top_link != None:
+            self.wfile.write(show_top_link)
         if release_date != "":
             self.wfile.write((f"<div>Release date: {release_date}</div>\n").encode("utf-8"))
         goodGenres = []
@@ -2424,8 +2436,18 @@ class web_server(BaseHTTPRequestHandler):
                 best_error = error
         return best_url
 
-    def addAlbum(self,album,release_date='',genres=[]):
+    def addAlbum(self,album,release_date='',genres=[],showname=False,showartist=False):
+        show_top_link = None
+        if showname:
+            if showartist:
+                artists, artists_with_links = list_to_comma_separated_string(album['artists'],'name')
+                show_top_link = f"<h2>{album['name']} by {artists_with_links}</h2>\n".encode("utf-8")
+            else:
+                show_top_link = f"<h2>{album['name']}</h2>\n".encode("utf-8")
+            self.wfile.write(show_top_link)
+
         self.addAlbum_Container_Start(album)
+
         if len(album['images']) > 0:
             self.addAlbum_Art(self.chooseAlbumArt(album['images'],300))
 
@@ -2540,6 +2562,37 @@ class web_server(BaseHTTPRequestHandler):
                     self.wfile.write(b"<hr/>")
                     self.addAlbum(album)
 
+
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
+
+    def do_GET_show_album(self):
+        self.addTopOfPage("Album")
+
+        params = parse_qs(self.parsed_path.query)
+
+        if 'albumid' in params:
+            album = read_SpotifyAlbum(params['albumid'][0])
+            self.addAlbum(album, showname=True, showartist=True)
+
+        self.wfile.write(b"</body>\n")
+        self.wfile.write(b"</html>")
+
+    def do_GET_show_artist(self):
+        self.addTopOfPage("Artist")
+
+        params = parse_qs(self.parsed_path.query)
+
+        if 'artistid' in params:
+            albums = []
+            results = SpotifyAPI.artist_albums(params['artistid'][0], album_type='album')
+            albums.extend(results['items'])
+            while results['next']:
+                results = SpotifyAPI.next(results)
+                albums.extend(results['items'])
+
+            for album in albums:
+                self.addAlbum(album, showname=True)
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
