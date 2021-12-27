@@ -59,6 +59,8 @@ IPBlacklist = {}
 
 Watchlist = []
 
+EveryNoiseArtistToGenreCache = {}
+
 def check_IP(ip):
     if ip not in IPBlacklist:
         print(f"Checking IP {ip}")
@@ -152,6 +154,9 @@ def get_args():
     parser.add_argument('--last-fm-recent-count', type=int, default=-1, required=False, help='How many recent tracks to retrieve from Last.FM')
 
     parser.add_argument('--bandcamp', required=False, action="store_true", help='Enable bandcamp integration')
+
+    parser.add_argument('--everynoise', required=False, action="store_true", help='Enable everynoise integration')
+    parser.add_argument('--everynoise-update', required=False, action="store_true", help='Update everynoise cached data')
 
     parser.add_argument('--server-default-playlist', required=False, help='Default playlist to add tracks to')
     parser.add_argument('--server-blacklist', required=False, help='Check incoming IP addresses against blacklist')
@@ -1774,7 +1779,7 @@ def init_watchlist_to_file():
 
 def init_urlcache_from_file():
     global URLCache
-    URLCache.clear()    
+    URLCache.clear()
     try:
         with open(ConfigFolder / 'urlcache.pickle','rb') as cachefile:
             newURLCache = pickle.load(cachefile)
@@ -1787,7 +1792,7 @@ def init_urlcache_from_file():
             value[1] = None
 
     URLCache = { key: value for key, value in newURLCache.items() if value is not None }
- 
+
     print(f"Read {len(URLCache)} entries from URL cache file, expired {len(newURLCache)-len(URLCache)} extries.")
 
 def init_urlcache_to_file():
@@ -1803,6 +1808,63 @@ def init_urlcache_to_file():
     except:
         print("Error writing URL cache file, restoring backup")
         copyfile(ConfigFolder / 'urlcache.pickle',ConfigFolder / 'urlcache.txt')
+
+def init_everynoise(update):
+    if update:
+        clear_everynoise_cache()
+    else:
+        init_everynoise_from_file()
+
+def clear_everynoise_cache():
+    global EveryNoiseArtistToGenreCache
+    EveryNoiseArtistToGenreCache.clear()
+
+
+def init_everynoise_from_file():
+    global EveryNoiseArtistToGenreCache
+    EveryNoiseArtistToGenreCache.clear()
+    try:
+        with open(ConfigFolder / 'everynoise.pickle','rb') as cachefile:
+            EveryNoiseArtistToGenreCache = pickle.load(cachefile)
+    except FileNotFoundError:
+        return None
+
+    print(f"Read {len(EveryNoiseArtistToGenreCache)} entries from everynoise cache file.")
+
+def init_everynoise_to_file():
+    try:
+        copyfile(ConfigFolder / 'everynoise.pickle',ConfigFolder / 'everynoise.bak')
+    except FileNotFoundError:
+        pass
+    try:
+        with open(ConfigFolder / 'everynoise.pickle','wb') as cachefile:
+            pickle.dump(EveryNoiseArtistToGenreCache,cachefile)
+
+        print(f"Wrote {len(EveryNoiseArtistToGenreCache)} entries to everynoise cache file.")
+    except:
+        print("Error writing everynoise file, restoring backup")
+        copyfile(ConfigFolder / 'everynoise.pickle',ConfigFolder / 'everynoise.txt')
+
+
+def get_everynoise_genres(artistid):
+    global EveryNoiseArtistToGenreCache
+    if artistid in EveryNoiseArtistToGenreCache:
+        return EveryNoiseArtistToGenreCache[artistid]
+    url = 'https://everynoise.com/research.cgi?mode=name&name=' + quote_plus('spotify:artist:' + artistid)
+    print(url)
+    page = requests.get(url)
+    tree = html.fromstring(page.content)
+    genre_entries = tree.xpath('//div[@class="note"]/a')
+    genres = []
+    for genre_entry in genre_entries:
+        href = genre_entry.get("href")
+        if "mode=genre" in href:
+            new_link = f"<a href='https://everynoise.com/research.cgi{href}'>{genre_entry.text_content().strip()}</a>";
+            genres.append(new_link)
+    print(f"Retrieved {len(genres)} for {artistid} from everynoise")
+    EveryNoiseArtistToGenreCache[artistid] = genres
+    init_everynoise_to_file()
+    return genres
 
 def in_watchlist(first_arg,artist=None,album=None):
 #    pprint.pprint(first_arg)
@@ -1946,6 +2008,9 @@ def main():
 
     if not Args.no_overrides:
         init_search_overrides()
+
+    if Args.everynoise:
+        init_everynoise(Args.everynoise_update)
 
     if Args.create:
         create_playlist()
@@ -2444,6 +2509,13 @@ class web_server(BaseHTTPRequestHandler):
             if showartist:
                 artists, artists_with_links = list_to_comma_separated_string(album['artists'],'name')
                 show_top_link = f"<h2>{album['name']} by {artists_with_links}</h2>\n".encode("utf-8")
+                artistid = album['artists'][0]['id']
+                if Args.everynoise:
+                    everynoisegenres = get_everynoise_genres(artistid)
+                    if everynoisegenres != None:
+                        aslist = ",".join(everynoisegenres)
+                        aslink = f"<h3>{aslist}</h3>\n".encode("utf-8")
+                        show_top_link = show_top_link + aslink
             else:
                 show_top_link = f"<h2>{album['name']}</h2>\n".encode("utf-8")
             self.wfile.write(show_top_link)
@@ -3046,7 +3118,6 @@ class web_server(BaseHTTPRequestHandler):
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
-
 
 
 if __name__ == '__main__':
