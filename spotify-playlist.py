@@ -2642,23 +2642,31 @@ class web_server(BaseHTTPRequestHandler):
         self.wfile.write(b"</html>")
 
     def do_GET_show_album(self):
-        self.addTopOfPage("Album")
-
         params = parse_qs(self.parsed_path.query)
 
         if 'albumid' in params:
             album = read_SpotifyAlbum(params['albumid'][0])
-            self.addAlbum(album, showname=True, showartist=True)
+            self.addTopOfPage(f"Album - {album['name']}")
+
+        self.addAlbum(album, showname=True, showartist=True)
 
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
 
     def do_GET_show_artist(self):
-        self.addTopOfPage("Artist")
-
         params = parse_qs(self.parsed_path.query)
 
         if 'artistid' in params:
+            artist = SpotifyAPI.artist(params['artistid'][0])
+            self.addTopOfPage(f"Artist - {artist['name']}")
+
+            if Args.everynoise:
+                everynoisegenres = get_everynoise_genres(params['artistid'][0])
+                if everynoisegenres != None:
+                    aslist = ",".join(everynoisegenres)
+                    aslink = f"<h3>{aslist}</h3>\n".encode("utf-8")
+                    self.wfile.write(aslink)
+
             albums = []
             results = SpotifyAPI.artist_albums(params['artistid'][0], album_type='album')
             albums.extend(results['items'])
