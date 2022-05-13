@@ -274,7 +274,7 @@ def print_track(result,i,album=None):
     if album_uri != None:
         album_link = 'http://open.spotify.com/' + album_uri[8:].replace(':','/')
     my_album_link = album_name
-    if album != None and album['id'] != None:
+    if album != None and 'id' in album and album['id'] != None:
         my_album_link = f"<a href='/show_album?albumid={album['id']}&app=spotify'>{album_name}</a>"
     duration_ms = result['duration_ms']
     duration_min = duration_ms / 60000
@@ -2789,7 +2789,6 @@ class web_server(BaseHTTPRequestHandler):
                     last_target = last_target + 1
                     release['target'] = f"album_{last_target}"
                     self.addMissingAlbum(release)
-#                    break
             else:
                 if not (filter and not matched_only):
                     self.wfile.write(b"<hr/>")
