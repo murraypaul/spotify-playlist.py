@@ -14,12 +14,13 @@ from pathlib import Path
 import random
 import pickle
 import base64
+import unidecode
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, quote_plus, unquote_plus, parse_qs
+from urllib.parse import urlparse, quote_plus, unquote_plus, parse_qs, quote
 import pydnsbl
 
 import json
@@ -179,6 +180,155 @@ def name_matches(left,right):
     #    print("Comparing '%s' with '%s'" % (left, right))
     return left == right
 
+def get_search_exact_filter_results(results,artist_in,album_in,removeaccents=False):
+    newresults = {}
+    newresults['albums'] = {}
+    newresults['albums']['items'] = []
+
+    artist = artist_in
+    album = album_in
+    if removeaccents:
+        artist = unidecode.unidecode(artist)
+        album = unidecode.unidecode(album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        for result in results['albums']['items']:
+            artist_match = False
+            album_match = False
+
+            artists, artists_with_links = list_to_comma_separated_string(result['artists'],'name')
+
+            a_album = result['name']
+            if removeaccents:
+                a_album = unidecode.unidecode(a_album)
+
+            if a_album.lower() in album.lower() or album.lower() in a_album.lower():
+#                print("Matched albums %s and %s [artists %s]" % (a_album,album,artists))
+                album_match = True
+
+            if album_match:
+                for a_artist in result['artists']:
+                    a_artist_name = a_artist['name']
+                    if removeaccents:
+                        a_artist_name = unidecode.unidecode(a_artist_name)
+                    if a_artist_name.lower() == artist.lower() or a_artist_name.lower() in artist.lower() or artist.lower() in a_artist_name.lower():
+#                        print("Matched artists %s and %s" % (a_artist_name,artist))
+                        artist_match = True
+                        break
+#                    else:
+#                        print("Artists '%s' and '%s' do not match" % (a_artist_name.lower(),artist.lower()))
+
+            if artist_match and album_match:
+#                print("Found match '%s' by '%s'" %(a_album,a_artist_name))
+                newresults['albums']['items'].append(result)
+
+    if len(newresults['albums']['items']) > 0:
+        return newresults
+    elif removeaccents == False:
+        return get_search_exact_filter_results(results,artist_in,album_in,True)
+    else:
+        return newresults
+
+def get_search_exact_with_fallback(artist,album):
+#    print("Searching for %s, %s" % (artist,album))
+    market = 'from_token'
+    if Args.market:
+        market = Args.market
+
+    s_artist = quote(artist)
+    s_album = album #quote(album)
+    q = "album:%s artist:%s" % (s_album,s_artist)
+#    print(q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        return results
+
+#    print("Not found, falling back")
+    q = "%s artist:%s" % (s_album,s_artist)
+#    print(q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        return results
+
+#    print("Not found, falling back further")
+    q = "album:%s" % (s_album)
+#    print(q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        return results
+
+#    print("Not found, falling back even further")
+    q = "artist:%s" % (s_artist)
+#    print(q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        return results
+
+#    print("Not found, falling back even even further")
+    q = "%s %s" % (s_album,s_artist)
+#    print(q)
+#    results = get_search_exact('','','',q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        return results
+
+#    print("Not found, falling back almost all the way")
+    q = "%s" % (s_album)
+#    print(q)
+#    results = get_search_exact('','','',q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
+        return results
+
+#    print("Not found, falling back all the way")
+    q = "%s" % (s_artist)
+#    print(q)
+#    results = get_search_exact('','','',q)
+    if Args.no_market:
+        results = SpotifyAPI.search(q=q,type='album')
+    else:
+        results = SpotifyAPI.search(q=q,type='album',market=market)
+
+    results = get_search_exact_filter_results(results,artist,album)
+
+    return results
+
 def get_search_exact(track_name,artist,album,free_text=''):
     if Args.show_search_details:
         print("Searching for (%s;%s;%s)" % (track_name,artist,album))
@@ -200,10 +350,7 @@ def get_search_exact(track_name,artist,album,free_text=''):
     elif track_name == '*':
         search_str = "artist:%s album:%s" % (artist, album)
         try:
-            if Args.no_market:
-                results = SpotifyAPI.search(search_str,type='album')
-            else:
-                results = SpotifyAPI.search(search_str,type='album',market=market)
+            results = get_search_exact_with_fallback(artist,album)
         except spotipy.exceptions.SpotifyException:
             return []
         if Args.show_search_details:
@@ -2538,8 +2685,79 @@ class web_server(BaseHTTPRequestHandler):
 
         self.addAlbum_Container_End()
 
+    def filter_results(self,results,artist,album):
+#        return [results[0]]
+
+
+        result_count = len(results)
+
+        if result_count > 1:
+            new_base = []
+            for result in results:
+                if name_matches(result['artists'][0]['name'], artist):
+                    new_base.append(result)
+            if len(new_base) > 0:
+                results = new_base
+                result_count = len(results)
+
+        if result_count > 1:
+            new_base = []
+            for result in results:
+                if name_matches(result['name'], album):
+                    new_base.append(result)
+            if len(new_base) > 0:
+                results = new_base
+                result_count = len(results)
+
+        # If there is a duplicate, prefer album tracks to singles
+        if result_count > 1:
+            new_base = []
+            for result in results:
+                if result['album_type'] ==  'album':
+                    new_base.append(result)
+            if len(new_base) == 1:
+                results = new_base
+                result_count = len(results)
+
+        # Sometimes get actual exact duplicates, try to eliminate those
+        if result_count > 1:
+            new_base = []
+            for result in results:
+                found = False
+                for existing in new_base:
+                    if not name_matches(existing['name'], result['name']):
+                        continue
+                    if existing['album_type'] != result['album_type']:
+                        continue
+                    if existing['release_date'] != result['release_date']:
+                        if existing['release_date'][0:4] != result['release_date'][0:4]:
+                            continue
+                    # seen situation where album is listed twice, one as YYYY-01-01 and once as YYYY-MM-DD
+#                    if existing['release_date'][6:10] != '01-01' and result['release_date'][6:10] != '01-01':
+#                        continue
+                    # release month and day just seems unreliable
+                    # assume that same year means same albumt
+                    if existing['total_tracks'] != result['total_tracks']:
+                        continue
+                    if len(existing['artists']) != len(result['artists']):
+                        continue
+                    found = True
+                    for loop in range(len(existing['artists'])):
+                        if not name_matches(existing['artists'][loop]['name'], result['artists'][loop]['name']):
+                            found = False
+                            break
+                if not found:
+                    new_base.append(result)
+            results = new_base
+            result_count = len(results)
+
+        return results
+
+
     def getResults(self,track_name,artist,album,free_text=''):
         results = get_search_exact('*',artist,album,free_text)
+        if free_text == '':
+            results = self.filter_results(results,artist,album);
 
         # If not found, try various changes
         if len(results) == 0 and free_text == '':
