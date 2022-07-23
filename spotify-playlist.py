@@ -150,6 +150,7 @@ def get_args():
     parser.add_argument('--show-playlist-onlyowned', required=False, action="store_true", help='Only show playlist membership for playlists created by the user')
     parser.add_argument('--no-overrides', required=False, action="store_true", help='Do not use overrides file')
     parser.add_argument('--public', required=False, action="store_true", help='Create playlists with the public flag set')
+    parser.add_argument('--limit-count', required=False, type=int, help='Only add the first X items to the playlist')
 
     marketgroup = parser.add_mutually_exclusive_group(required=False)
     marketgroup.add_argument('--no-market', required=False, action="store_true", help='Do not limit searches by user market')
@@ -1425,6 +1426,8 @@ def create_playlist():
         print(f"Created playlist: {playlist_id}")
 
     for row in tracks_to_import:
+        if Args.limit_count and Args.limit_count <= found + notfound:
+            break
         if len(row) == 1:
 # spotify album id
             album = read_SpotifyAlbum("spotify:album:" + row[0])
@@ -1558,7 +1561,7 @@ def create_playlist():
 
     if playlist_comments != "":
         if playlist_comments_extra != "":
-            playlist_comments = playlist_comments + ". Not found (%d) %s" % (notfound, playlist_comments_extra)
+            playlist_comments = playlist_comments + ". Not found (%d/%d) %s" % (notfound, found+notfound, playlist_comments_extra)
         print("Setting description to " + playlist_comments)
         if not Args.dryrun:
             SpotifyAPI.user_playlist_change_details(user,playlist_id,description=playlist_comments[0:300])
