@@ -15,6 +15,7 @@ import random
 import pickle
 import base64
 import unidecode
+import subprocess
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -61,6 +62,8 @@ IPBlacklist = {}
 Watchlist = []
 
 EveryNoiseArtistToGenreCache = {}
+
+ExternalBrowser = "lynx -source"
 
 def check_IP(ip):
     if ip not in IPBlacklist:
@@ -124,6 +127,7 @@ def get_args():
     urltypegroup.add_argument('--metalstorm-releases', required=False, action="store_true", help='Url is MetalStorm new releases list')
     urltypegroup.add_argument('--metalstorm-list', required=False, action="store_true", help='Url is MetalStorm user created list')
     urltypegroup.add_argument('--metalstorm-notmetal', required=False, action="store_true", help='Url is MetalStorm This Isn\'t Metal! list')
+    urltypegroup.add_argument('--aoty-recent', required=False, action="store_true", help='Url is Album of the Year recent list')
 
     parser.add_argument('--playlist', required=False, help='Only songs played from specified playlist')
 
@@ -187,6 +191,7 @@ def get_search_exact_filter_results(results,artist_in,album_in,removeaccents=Fal
 
     artist = artist_in
     album = album_in
+
     if removeaccents:
         artist = unidecode.unidecode(artist)
         album = unidecode.unidecode(album)
@@ -1099,8 +1104,18 @@ def open_dataset_csv():
     return csv_reader
 
 def open_dataset_html():
-    page = requests.get(Args.url)
-    tree = html.fromstring(page.content)
+    if Args.aoty_recent:
+        p = subprocess.Popen(ExternalBrowser + " " + Args.url,stdout=subprocess.PIPE, shell=True)
+        (output,err) = p.communicate()
+        status = p.wait()
+        if status == 0:
+            page_content = output
+            tree = html.fromstring(page_content)
+        else:
+            tree = None
+    else:
+        page = requests.get(Args.url)
+        tree = html.fromstring(page.content)
     return tree
 
 def open_dataset():
@@ -1136,6 +1151,10 @@ def get_playlist_name_html_metalstorm_notmetal(data):
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + title
 
+def get_playlist_name_html_aoty_recent(data):
+    title = data.xpath('//*[@id="centerContent"]/div/div/h1[@class="headline"]/text()')[0].strip()
+    return 'AotY: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
+
 def get_playlist_name(data):
     if Args.file:
         return get_playlist_name_csv(data)
@@ -1147,6 +1166,8 @@ def get_playlist_name(data):
         return get_playlist_name_html_metalstorm_releases(data).replace("  "," ")
     elif Args.metalstorm_notmetal:
         return get_playlist_name_html_metalstorm_notmetal(data).replace("  "," ")
+    elif Args.aoty_recent:
+        return get_playlist_name_html_aoty_recent(data).replace("  "," ")
     else:
         return None
 
@@ -1342,6 +1363,21 @@ def get_tracks_to_import_html_metalstorm_releases_extended(data):
 
     return tracks
 
+def get_tracks_to_import_html_aoty_recent(data):
+    artists = data.xpath('//div[@class="artistTitle"]/text()')
+    albums = data.xpath('//div[@class="albumTitle"]/text()')
+    print("Found %d,%d" % (len(artists), len(albums)))
+    if len(artists) != len(albums):
+        print("Error parsing data")
+        return []
+    tracks = []
+    for i in range(len(albums)):
+        artist = artists[i]
+        album = albums[i]
+        track = ['*', artist, album]
+        tracks.append(track)
+    return tracks
+
 def get_tracks_to_import(data):
     if Args.file:
         return get_tracks_to_import_csv(data)
@@ -1353,6 +1389,8 @@ def get_tracks_to_import(data):
         return get_tracks_to_import_html_metalstorm_releases(data)
     elif Args.metalstorm_notmetal:
         return get_tracks_to_import_html_metalstorm_notmetal(data)
+    elif Args.aoty_recent:
+        return get_tracks_to_import_html_aoty_recent(data)
     else:
         return None
 
@@ -1465,12 +1503,12 @@ def create_playlist():
                 if "&" in artist:
                     artist = artist.replace("&"," ")
                 # Issue with searching for single-quote in title?
-                if "'" in track_name:
-                    track_name = track_name.replace("'"," ")
-                if "'" in album:
-                    album = album.replace("'"," ")
-                if "'" in artist:
-                    artist = artist.replace("'"," ")
+#                if "'" in track_name:
+#                    track_name = track_name.replace("'"," ")
+#                if "'" in album:
+#                    album = album.replace("'"," ")
+#                if "'" in artist:
+#                    artist = artist.replace("'"," ")
 
                 if track_name == '*':
                     results = get_results_for_album(artist,album,False,Args.interactive)
@@ -2131,7 +2169,7 @@ def main():
         last_fm_client_secret = credfile.readline().strip()
         last_fm_username = credfile.readline().strip()
 
-    SpotifyAPI = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username))
+    SpotifyAPI = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=scope,client_id=client_id,client_secret=client_secret,redirect_uri=redirect_uri,username=username,open_browser=False))
     SpotifyAPI.trace = True
 #    SpotifyAPI.trace = False
 
