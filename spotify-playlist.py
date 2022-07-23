@@ -129,6 +129,7 @@ def get_args():
     urltypegroup.add_argument('--metalstorm-notmetal', required=False, action="store_true", help='Url is MetalStorm This Isn\'t Metal! list')
     urltypegroup.add_argument('--aoty-top', required=False, action="store_true", help='Url is Album of the Year top list')
     urltypegroup.add_argument('--aoty-recent', required=False, action="store_true", help='Url is Album of the Year recent list')
+    urltypegroup.add_argument('--aoty-list', required=False, action="store_true", help='Url is Album of the Year list page')
 
     parser.add_argument('--playlist', required=False, help='Only songs played from specified playlist')
 
@@ -1106,7 +1107,7 @@ def open_dataset_csv():
     return csv_reader
 
 def open_dataset_html():
-    if Args.aoty_recent or Args.aoty_top:
+    if Args.aoty_recent or Args.aoty_top or Args.aoty_list:
         p = subprocess.Popen(ExternalBrowser + " " + Args.url,stdout=subprocess.PIPE, shell=True)
         (output,err) = p.communicate()
         status = p.wait()
@@ -1153,12 +1154,8 @@ def get_playlist_name_html_metalstorm_notmetal(data):
     title = data.xpath('//*[@id="page-content"]/div[1]/text()')[0].strip()
     return 'MetalStorm: ' + title
 
-def get_playlist_name_html_aoty_top(data):
-    title = data.xpath('//*[@id="centerContent"]/div/h1[@class="headline"]/text()')[0].strip()
-    return 'AotY: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
-
-def get_playlist_name_html_aoty_recent(data):
-    title = data.xpath('//*[@id="centerContent"]/div/div/h1[@class="headline"]/text()')[0].strip()
+def get_playlist_name_html_aoty(data):
+    title = data.xpath('//*[@id="centerContent"]//h1[@class="headline"]/text()')[0].strip()
     return 'AotY: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
 
 def get_playlist_name(data):
@@ -1172,10 +1169,8 @@ def get_playlist_name(data):
         return get_playlist_name_html_metalstorm_releases(data).replace("  "," ")
     elif Args.metalstorm_notmetal:
         return get_playlist_name_html_metalstorm_notmetal(data).replace("  "," ")
-    elif Args.aoty_top:
-        return get_playlist_name_html_aoty_top(data).replace("  "," ")
-    elif Args.aoty_recent:
-        return get_playlist_name_html_aoty_recent(data).replace("  "," ")
+    elif Args.aoty_top or Args.aoty_recent or Args.aoty_list:
+        return get_playlist_name_html_aoty(data).replace("  "," ")
     else:
         return None
 
@@ -1371,7 +1366,7 @@ def get_tracks_to_import_html_metalstorm_releases_extended(data):
 
     return tracks
 
-def get_tracks_to_import_html_aoty_top(data):
+def get_tracks_to_import_html_aoty_list(data):
     lines = data.xpath('//*[@class="albumListTitle"]/span/a')
 
     tracks = []
@@ -1417,8 +1412,8 @@ def get_tracks_to_import(data):
         return get_tracks_to_import_html_metalstorm_releases(data)
     elif Args.metalstorm_notmetal:
         return get_tracks_to_import_html_metalstorm_notmetal(data)
-    elif Args.aoty_top:
-        return get_tracks_to_import_html_aoty_top(data)
+    elif Args.aoty_top or Args.aoty_list:
+        return get_tracks_to_import_html_aoty_list(data)
     elif Args.aoty_recent:
         return get_tracks_to_import_html_aoty_recent(data)
     else:
