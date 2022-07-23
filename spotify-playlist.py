@@ -130,6 +130,8 @@ def get_args():
     urltypegroup.add_argument('--aoty-top', required=False, action="store_true", help='Url is Album of the Year top list')
     urltypegroup.add_argument('--aoty-recent', required=False, action="store_true", help='Url is Album of the Year recent list')
     urltypegroup.add_argument('--aoty-list', required=False, action="store_true", help='Url is Album of the Year list page')
+    urltypegroup.add_argument('--sputnik-top', required=False, action="store_true", help='Url is Sputnik Music top list')
+    urltypegroup.add_argument('--sputnik-recent', required=False, action="store_true", help='Url is Sputnik Music recent list')
 
     parser.add_argument('--playlist', required=False, help='Only songs played from specified playlist')
 
@@ -1106,16 +1108,20 @@ def open_dataset_csv():
     csv_reader = csv.reader(csv_file,delimiter=',')
     return csv_reader
 
+def open_dataset_html_external():
+    p = subprocess.Popen(ExternalBrowser + " " + Args.url,stdout=subprocess.PIPE, shell=True)
+    (output,err) = p.communicate()
+    status = p.wait()
+    if status == 0:
+        page_content = output
+        tree = html.fromstring(page_content)
+    else:
+        tree = None
+    return tree
+
 def open_dataset_html():
     if Args.aoty_recent or Args.aoty_top or Args.aoty_list:
-        p = subprocess.Popen(ExternalBrowser + " " + Args.url,stdout=subprocess.PIPE, shell=True)
-        (output,err) = p.communicate()
-        status = p.wait()
-        if status == 0:
-            page_content = output
-            tree = html.fromstring(page_content)
-        else:
-            tree = None
+        tree = open_dataset_html_external()
     else:
         page = requests.get(Args.url)
         tree = html.fromstring(page.content)
@@ -1158,6 +1164,14 @@ def get_playlist_name_html_aoty(data):
     title = data.xpath('//*[@id="centerContent"]//h1[@class="headline"]/text()')[0].strip()
     return 'AotY: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
 
+def get_playlist_name_html_sputnik_top(data):
+    title = data.xpath('//h1[@class="brighttext"]/strong/text()')[0].strip()
+    return 'Sputnik: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
+
+def get_playlist_name_html_sputnik_recent(data):
+    title = data.xpath('//*[@id="genreselect"]/option[@selected]/text()')[0].strip()
+    return 'Sputnik Recent Releases: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
+
 def get_playlist_name(data):
     if Args.file:
         return get_playlist_name_csv(data)
@@ -1171,6 +1185,10 @@ def get_playlist_name(data):
         return get_playlist_name_html_metalstorm_notmetal(data).replace("  "," ")
     elif Args.aoty_top or Args.aoty_recent or Args.aoty_list:
         return get_playlist_name_html_aoty(data).replace("  "," ")
+    elif Args.sputnik_top:
+        return get_playlist_name_html_sputnik_top(data).replace("  "," ")
+    elif Args.sputnik_recent:
+        return get_playlist_name_html_sputnik_recent(data).replace("  "," ")
     else:
         return None
 
@@ -1401,6 +1419,36 @@ def get_tracks_to_import_html_aoty_recent(data):
         tracks.append(track)
     return tracks
 
+def get_tracks_to_import_html_sputnik_top(data):
+    artists = data.xpath('//tr[@class="alt1"]/td/font[1]/b/text()')
+    albums = data.xpath('//tr[@class="alt1"]/td/font[2]/text()')
+    print("Found %d,%d" % (len(artists), len(albums)))
+    if len(artists) != len(albums):
+        print("Error parsing data")
+        return []
+    tracks = []
+    for i in range(len(albums)):
+        artist = artists[i]
+        album = albums[i]
+        track = ['*', artist, album]
+        tracks.append(track)
+    return tracks
+
+def get_tracks_to_import_html_sputnik_recent(data):
+    artists = data.xpath('//table[@class="alt1"]//font/b/text()')
+    albums = data.xpath('//table[@class="alt1"]//font/font/text()')
+    print("Found %d,%d" % (len(artists), len(albums)))
+    if len(artists) != len(albums):
+        print("Error parsing data")
+        return []
+    tracks = []
+    for i in range(len(albums)):
+        artist = artists[i]
+        album = albums[i]
+        track = ['*', artist, album]
+        tracks.append(track)
+    return tracks
+
 def get_tracks_to_import(data):
     if Args.file:
         return get_tracks_to_import_csv(data)
@@ -1416,6 +1464,10 @@ def get_tracks_to_import(data):
         return get_tracks_to_import_html_aoty_list(data)
     elif Args.aoty_recent:
         return get_tracks_to_import_html_aoty_recent(data)
+    elif Args.sputnik_top:
+        return get_tracks_to_import_html_sputnik_top(data)
+    elif Args.sputnik_recent:
+        return get_tracks_to_import_html_sputnik_recent(data)
     else:
         return None
 
