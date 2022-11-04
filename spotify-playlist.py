@@ -3085,11 +3085,13 @@ class web_server(BaseHTTPRequestHandler):
 #        data = html.fromstring(page.content)
 # Do cache it, but refresh more frequently
         data = read_URL("http://www.metalstorm.net/events/new_releases.php",60*60)
+        data2 = read_URL("http://www.metalstorm.net/events/new_releases.php?page=2",60*60)
 
         tracks_to_import = get_tracks_to_import_html_metalstorm_releases_extended(data)
+        tracks_to_import2 = get_tracks_to_import_html_metalstorm_releases_extended(data2)
 
         last_release_date = ""
-        for release in tracks_to_import:
+        for release in tracks_to_import + tracks_to_import2:
             if release['release_date'] != last_release_date:
                 self.wfile.write(b"<hr/>")
                 self.wfile.write((f"<h2>Releases for {release['release_date']}</h2>\n").encode("utf-8"))
