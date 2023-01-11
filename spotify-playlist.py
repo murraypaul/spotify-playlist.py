@@ -415,6 +415,12 @@ def list_to_comma_separated_string(list,key):
             artists_links = artists_links + artist[key]
     return artists, artists_links
 
+def list_to_list(list,key):
+    artists = []
+    for artist in list:
+        artists.append(artist[key])
+    return artists
+
 def print_track(result,i,album=None):
     track_name = result['name']
     track_uri = result['uri']
@@ -422,7 +428,9 @@ def print_track(result,i,album=None):
         track_link = 'http://open.spotify.com/' + track_uri[8:].replace(':','/')
     else:
         track_link = None
+#    pprint.pprint(result['artists'])
     artists, artists_with_links = list_to_comma_separated_string(result['artists'],'name')
+    artist_names = list_to_list(result['artists'],'name')
     if album == None:
         album = result['album']
     album_name = album['name']
@@ -440,7 +448,7 @@ def print_track(result,i,album=None):
     explicit = " "
     if result['explicit']:
         explicit = "Y"
-    playcount = get_playcount_str(artists,album_name,track_name,result['uri'])
+    playcount = get_playcount_str(artist_names,album_name,track_name,result['uri'])
     popularity = -1
     if 'popularity' in result:
         popularity = result['popularity']
@@ -548,11 +556,12 @@ def select_duplicate(results,track_name,artist_name,album_name,ask=True,start_co
 
 def print_album(count,album,track_count=-1):
     artists = list_to_comma_separated_string(album['artists'],'name')[0]
+    artist_names = list_to_list(album['artists'],'name')
     count_source = " "
     if track_count == -1:
         track_count = 0
         for i,track in enumerate(SpotifyAPI.album_tracks(album['id'])['items']):
-            playcount_str = get_playcount_str(artists,album['name'],track['name'],track['uri'])
+            playcount_str = get_playcount_str(artist_names,album['name'],track['name'],track['uri'])
             if playcount_str != None and playcount_str != "   ":
                 count_source = playcount_str[:1]
                 track_count = track_count + 1
@@ -1688,7 +1697,7 @@ def init_last_fm_recent_cache():
         print(f"Retrieved {len(recent_tracks)} from Last.FM")
         latest_timestamp = None
         for i, track in enumerate(recent_tracks):
-    #        pprint.pprint(track)
+#            pprint.pprint(track)
             if track == None or track.track == None or track.track.artist == None or track.track.artist.name == None or track.track.title == None:
                 print(f"Error with track {i}.")
                 pprint.pprint(track)
@@ -1700,6 +1709,7 @@ def init_last_fm_recent_cache():
                 if album == None:
                     album = "";
                 entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=track.track.artist.name.upper(),track=track.track.title.upper())
+#                pprint.pprint(entry)
                 if entry in LastFMRecentTrackCache:
                     LastFMRecentTrackCache[entry] = LastFMRecentTrackCache[entry] + 1
                 else:
@@ -1715,7 +1725,7 @@ def init_last_fm_recent_cache():
 def init_last_fm_recent_cache_from_file():
     last_timestamp = None
     try:
-        with open(ConfigFolder / 'lastfm_cache.txt','r') as cachefile:
+        with open(ConfigFolder / 'lastfm_cache.txt','r',encoding='utf-8') as cachefile:
             last_timestamp = cachefile.readline().strip()
             while True:
                 line = cachefile.readline()
@@ -1741,7 +1751,7 @@ def init_last_fm_recent_cache_to_file(timestamp):
     except FileNotFoundError:
         pass
     try:
-        with open(ConfigFolder / 'lastfm_cache.txt','w') as cachefile:
+        with open(ConfigFolder / 'lastfm_cache.txt','w',encoding='utf-8') as cachefile:
             cachefile.write(f"{timestamp}\n")
             for entry in LastFMRecentTrackCache:
                 line = f"{entry.album};; {entry.artist};; {entry.track};; {LastFMRecentTrackCache[entry]}\n"
@@ -1770,23 +1780,41 @@ def query_recent_spotify():
     print(f"Cached {len(SpotifyRecentTrackCache)} unique tracks.")
 #    pprint.pprint(SpotifyRecentTrackCache)
 
-def get_playcount_str(artist,album,track,uri):
+def get_playcount_str(artists,album,track,uri):
     playcount = "   "
+    count = -1
+    #For LastFM, use just the first listed artist
     if LastFMRecentTrackCache != None:
 #        pprint.pprint(LastFMRecentTrackCache)
-        entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=artist.upper(),track=track.upper())
-#        print(f"Searching for ('{album.upper()}','{artist.upper()}','{track.upper()}')")
-        count = LastFMRecentTrackCache.get(entry,-1)
-        if count > 0:
-#            print("Found")
-            playcount = "L%2.0d" % (count)
-        else: # Try with no album
-            entry = LastFMRecentTrackCacheEntry(album='',artist=artist.upper(),track=track.upper())
-#            print(f"Searching for ('{''}','{artist.upper()}','{track.upper()}')")
+        for artist in artists:
+            entry = LastFMRecentTrackCacheEntry(album=album.upper(),artist=artist.upper(),track=track.upper())
+#            print(f"Searching for ('{album.upper()}','{artist.upper()}','{track.upper()}')")
             count = LastFMRecentTrackCache.get(entry,-1)
             if count > 0:
 #                print("Found")
-                playcount = "L%2.0d" % (count)
+                found = True
+                break
+        if count <= 0:
+            # Try with no album
+            for artist in artists:
+                entry = LastFMRecentTrackCacheEntry(album='',artist=artist.upper(),track=track.upper())
+#                print(f"Searching for ('{''}','{artist.upper()}','{track.upper()}')")
+                count = LastFMRecentTrackCache.get(entry,-1)
+                if count > 0:
+#                    print("Found")
+                    break
+        if count <= 0:
+            # Try ignoring album
+            for artist in artists:
+                if count > 0: break
+#                print(f"Searching for ('{'<ignored>'}','{artist.upper()}','{track.upper()}')")
+                for entry in LastFMRecentTrackCache:
+                    if entry.artist == artist.upper() and entry.track == track.upper():
+                        count = LastFMRecentTrackCache[entry]
+#                        print("Found")
+                        break
+        if count > 0:
+            playcount = "L%2.0d" % (count)
     elif SpotifyRecentTrackCache != None:
         entry = uri
         if entry in SpotifyRecentTrackCache:
@@ -1796,7 +1824,7 @@ def get_playcount_str(artist,album,track,uri):
 
 def init_search_overrides():
     try:
-        with open(ConfigFolder / 'overrides.txt','r') as overridesfile:
+        with open(ConfigFolder / 'overrides.txt','r',encoding='utf-8') as overridesfile:
             for line in overridesfile:
                 line = line.strip()
                 data = line.split(';; ')
@@ -1915,7 +1943,7 @@ def init_playlist_cache():
 
 def init_playlist_cache_from_file():
     try:
-        with open(ConfigFolder / 'playlist_cache.add','r') as cachefile:
+        with open(ConfigFolder / 'playlist_cache.add','r',encoding='utf-8') as cachefile:
             for line in cachefile:
                 line = line.strip()
                 data = line.split(';; ')
@@ -1927,7 +1955,7 @@ def init_playlist_cache_from_file():
         pass
 
     try:
-        with open(ConfigFolder / 'playlist_cache.txt','r') as cachefile:
+        with open(ConfigFolder / 'playlist_cache.txt','r',encoding='utf-8') as cachefile:
             for line in cachefile:
                 line = line.strip()
                 data = line.split(';; ')
@@ -1950,7 +1978,7 @@ def init_playlist_cache_to_file():
         pass
     try:
         count = 0
-        with open(ConfigFolder / 'playlist_cache.txt','w') as cachefile:
+        with open(ConfigFolder / 'playlist_cache.txt','w',encoding='utf-8') as cachefile:
             for entry in PlaylistDetailsCache:
                 playlist = PlaylistDetailsCache[entry]
                 if not playlist['active']:
@@ -1973,7 +2001,7 @@ def init_genre_cache_from_file():
     GenresGood.clear()
     GenresBad.clear()
     try:
-        with open(ConfigFolder / 'genres.txt','r') as cachefile:
+        with open(ConfigFolder / 'genres.txt','r',encoding='utf-8') as cachefile:
             for line in cachefile:
                 line = line.strip()
                 if len(line) > 2:
@@ -1992,7 +2020,7 @@ def init_genre_cache_to_file():
     except FileNotFoundError:
         pass
     try:
-        with open(ConfigFolder / 'genres.txt','w') as cachefile:
+        with open(ConfigFolder / 'genres.txt','w',encoding='utf-8') as cachefile:
             for entry in GenresGood:
                 line = f"+{entry}\n"
                 cachefile.write(line)
@@ -2010,7 +2038,7 @@ def init_genre_cache_to_file():
 def init_watchlist_from_file():
     Watchlist.clear()
     try:
-        with open(ConfigFolder / 'watchlist.txt','r') as cachefile:
+        with open(ConfigFolder / 'watchlist.txt','r',encoding='utf-8') as cachefile:
             for line in cachefile:
                 line = line.strip()
                 data = line.split(';; ')
@@ -2029,7 +2057,7 @@ def init_watchlist_to_file():
     except FileNotFoundError:
         pass
     try:
-        with open(ConfigFolder / 'watchlist.txt','w') as cachefile:
+        with open(ConfigFolder / 'watchlist.txt','w',encoding='utf-8') as cachefile:
             for entry in Watchlist:
                 line = f"{entry['track']};; {entry['artist']};; {entry['album']};; {entry['release_date']};; {','.join(entry['genres'])};; {entry['art']};; {entry['bandcamp_link']};; <end>\n"
                 cachefile.write(line)
