@@ -132,6 +132,7 @@ def get_args():
     urltypegroup.add_argument('--aoty-list', required=False, action="store_true", help='Url is Album of the Year list page')
     urltypegroup.add_argument('--sputnik-top', required=False, action="store_true", help='Url is Sputnik Music top list')
     urltypegroup.add_argument('--sputnik-recent', required=False, action="store_true", help='Url is Sputnik Music recent list')
+    urltypegroup.add_argument('--rym-chart', required=False, action="store_true", help='Url is Rate Your Music chart')
 
     parser.add_argument('--playlist', required=False, help='Only songs played from specified playlist')
 
@@ -203,10 +204,14 @@ def get_search_exact_filter_results(results,artist_in,album_in,removeaccents=Fal
 
     if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0:
         for result in results['albums']['items']:
+            if result == None:
+                continue
+
             artist_match = False
             album_match = False
 
-            artists, artists_with_links = list_to_comma_separated_string(result['artists'],'name')
+            if 'artists' in result:
+                artists, artists_with_links = list_to_comma_separated_string(result['artists'],'name')
 
             a_album = result['name']
             if removeaccents:
@@ -1181,6 +1186,12 @@ def get_playlist_name_html_sputnik_recent(data):
     title = data.xpath('//*[@id="genreselect"]/option[@selected]/text()')[0].strip()
     return 'Sputnik Recent Releases: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
 
+def get_playlist_name_html_rym_chart(data):
+    print(etree.tostring(data))
+    pprint.pprint(data.xpath('//h1[@id="page_charts_section_charts_header_chart_name"]'))
+    title = data.xpath('//h1[@id="page_charts_section_charts_header_chart_name"]/text()')[0].strip()
+    return 'RYM Chart: ' + title + ' (' + datetime.date.today().strftime("%Y-%m-%d") + ')'
+
 def get_playlist_name(data):
     if Args.file:
         return get_playlist_name_csv(data)
@@ -1198,6 +1209,8 @@ def get_playlist_name(data):
         return get_playlist_name_html_sputnik_top(data).replace("  "," ")
     elif Args.sputnik_recent:
         return get_playlist_name_html_sputnik_recent(data).replace("  "," ")
+    elif Args.rym_chart:
+        return get_playlist_name_html_rym_chart(data).replace("  "," ")
     else:
         return None
 
@@ -1458,6 +1471,21 @@ def get_tracks_to_import_html_sputnik_recent(data):
         tracks.append(track)
     return tracks
 
+def get_tracks_to_import_html_rym_chart(data):
+    artists = data.xpath('//*[@class="page_charts_section_charts_item_credited_links_primary"]/a/span/span/text()')
+    albums = data.xpath('//*[@class="page_charts_section_charts_item_title"]/a/span/span/text()')
+    print("Found %d,%d" % (len(artists), len(albums)))
+    if len(artists) != len(albums):
+        print("Error parsing data")
+        return []
+    tracks = []
+    for i in range(len(albums)):
+        artist = artists[i]
+        album = albums[i]
+        track = ['*', artist, album]
+        tracks.append(track)
+    return tracks
+
 def get_tracks_to_import(data):
     if Args.file:
         return get_tracks_to_import_csv(data)
@@ -1477,12 +1505,21 @@ def get_tracks_to_import(data):
         return get_tracks_to_import_html_sputnik_top(data)
     elif Args.sputnik_recent:
         return get_tracks_to_import_html_sputnik_recent(data)
+    elif Args.rym_chart:
+        return get_tracks_to_import_html_rym_chart(data)
     else:
         return None
 
-def get_playlist_comments_html(data):
-    comments = "Imported from " + Args.url + " on "+ datetime.date.today().strftime("%Y-%m-%d")
+def get_playlist_comments_html_rym_chart(data):
+    comments = data.xpath('//div[@id="page_charts_section_charts_header_criteria"]/text()')[0].strip()
     return comments
+
+def get_playlist_comments_html(data):
+    if Args.rym_chart:
+        return get_playlist_comments_html_rym_chart(data)
+    else:
+        comments = "Imported from " + Args.url + " on "+ datetime.date.today().strftime("%Y-%m-%d")
+        return comments
 
 def get_playlist_comments(data):
     if Args.url:

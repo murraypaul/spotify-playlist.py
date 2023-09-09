@@ -1122,6 +1122,12 @@ def add_album_to_playlist_byid(albumid,playlist):
         pprint.pprint(track_ids)
     else:
         SpotifyAPI.user_playlist_add_tracks(SpotifyAPI.me()['id'],playlist['id'],track_ids)
+
+        newplaylist = SpotifyAPI.playlist(playlist['id'])
+        init_playlist_cache_playlist(newplaylist)
+        init_playlist_cache_process_playlist(playlist['id'])
+        init_playlist_cache_to_file()
+
     return len(track_ids)
 
 def open_dataset_csv():
@@ -2487,7 +2493,9 @@ def webinit():
         myArgs['show_playlist_membership'] = True 
         myArgs['server_default_playlist'] = 'GPM: Try This (Current)'
 
-        init(get_args(['--server', '8081', '--last-fm', '--bandcamp', '--everynoise', '--show-playlist-membership', '--server-default-playlist', '"GPM: Try This (Current)"']))
+        init(get_args(['--server', '8081', '--last-fm', '--bandcamp', '--everynoise', '--show-playlist-membership', '--server-default-playlist', 'GPM: Try This (Current)']))
+
+        init_urlcache_from_file()
 
     WebOutput = FakeWebOutput()
 
@@ -2514,7 +2522,8 @@ def addCSS_from_file(file_name):
 
 def showMessage(params):
     if 'message' in params:
-        for message in params['message']:
+#        for message in params['message']:
+            message = params['message']
             if message[0:2] == "b'":
                 message = message[2:-1]
             WebOutput.add_to_result((f"<h3>{message}</h3>").encode("utf-8"))
@@ -3210,8 +3219,24 @@ def do_GET_watchlist(filter=False,matched_only=True):
 
     return webfinish()
 
+@app.route('/add_album_to_playlist')
 def do_GET_add_album_to_playlist():
+    webinit()
+
+    print("In add_album_to_playlist")
+
     params = request.args
+
+    print("Parameters:")
+    pprint.pprint(params)
+
+    extramessage = ''
+    if 'album' in params:
+        print(f"Album: {params['album']}")
+        extramessage += f"Album: {params['album']}"
+    if 'playlist' in params:
+        print(f"Playlist: {params['playlist']}")
+        extramessage += f"Playlist: {params['playlist']}"
 
     message = ""
     if 'album' in params and 'playlist' in params:
@@ -3235,16 +3260,16 @@ def do_GET_add_album_to_playlist():
             else:
                 message = message + f"\nError: {entry['album']} by {entry['artist']} not found in watchlist."
     else:
-        message = "Error in parameters"
+        message = "Error in parameters. " + extramessage
 
     message = message.encode('latin-1','xmlcharrefreplace')
     message = quote_plus(message)
 
-    addRedirect(params,message)
+    return addRedirect(params,message)
 
-    end_headers()
-
+@app.route('/add_album_to_watchlist')
 def do_GET_add_album_to_watchlist():
+    webinit()
     params = request.args
 
     if 'album' in params and 'artist' in params:
@@ -3266,11 +3291,12 @@ def do_GET_add_album_to_watchlist():
     message = message.encode('latin-1','xmlcharrefreplace')
     message = quote_plus(message)
 
-    addRedirect(params,message)
+    return addRedirect(params,message)
 
-    end_headers()
 
+@app.route('/remove_album_from_watchlist')
 def do_GET_remove_album_from_watchlist():
+    webinit()
     params = request.args
 
     message = ""
@@ -3290,18 +3316,20 @@ def do_GET_remove_album_from_watchlist():
     message = message.encode('latin-1','xmlcharrefreplace')
     message = quote_plus(message)
 
-    addRedirect(params,message)
+    return addRedirect(params,message)
 
-    end_headers()
-
+@app.route('/tag_genre')
 def do_GET_tag_genre():
+    webinit()
     print("In do_GET_tag_genre")
     params = request.args
-#        pprint.pprint(params)
+    pprint.pprint(params)
+    
     message = ""
     if 'tag_genre_untagged' in params:
-        tags = params['tag_genre_untagged']
-        for tag in tags:
+        tag = params['tag_genre_untagged']
+        if True:
+#        for tag in tags:
             if tag in GenresGood:
                 message = message + f"Removed Liked tag from genre {tag}. "
                 GenresGood.remove(tag)
@@ -3309,8 +3337,9 @@ def do_GET_tag_genre():
                 message = message + f"Removed Disliked tag from genre {tag}. "
                 GenresBad.remove(tag)
     if 'tag_genre_good' in params:
-        tags = params['tag_genre_good']
-        for tag in tags:
+        tag = params['tag_genre_good']
+        if True:
+#        for tag in tags:
             if tag in GenresBad:
                 message = message + f"Removed Disliked tag from genre {tag}. "
                 GenresBad.remove(tag)
@@ -3318,8 +3347,9 @@ def do_GET_tag_genre():
                 message = message + f"Added Liked tag to genre {tag}. "
                 GenresGood.append(tag)
     if 'tag_genre_bad' in params:
-        tags = params['tag_genre_bad']
-        for tag in tags:
+        tag = params['tag_genre_bad']
+        if True:
+#        for tag in tags:
             if tag in GenresGood:
                 message = message + f"Removed Liked tag from genre {tag}. "
                 GenresGood.remove(tag)
@@ -3332,9 +3362,8 @@ def do_GET_tag_genre():
     message = message.encode('latin-1','xmlcharrefreplace')
     message = quote_plus(message)
 
-    addRedirect(params,message)
+    return addRedirect(params,message)
 
-    end_headers()
 
 def do_GET_playlists_add_header():
     user_id = SpotifyAPI.me()['id']
@@ -3454,6 +3483,9 @@ def do_GET_playlists():
             message = quote_plus(message)
 
             print(message)
+
+            init_playlist_cache_playlist(playlist)
+
             return redirect( f"/playlists?app=spotify&playlist={playlist['id']}&message={message}")
 
         elif action == 'duplicate':
