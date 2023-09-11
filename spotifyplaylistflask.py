@@ -2497,6 +2497,8 @@ def webinit():
 
         init_urlcache_from_file()
 
+    init_playlist_cache()
+
     WebOutput = FakeWebOutput()
 
 def webfinish():
@@ -2983,7 +2985,7 @@ def do_GET_main_page():
 
     return webfinish()
 
-@app.route('/')
+@app.route('/search')
 def do_GET_search():
     webinit()
     addTopOfPage("Search")
@@ -3000,6 +3002,8 @@ def do_GET_search():
 </div>''')
 
     params = request.args
+
+    showMessage(params)
 
     if 'search' in params:
         search_term = params['search']
