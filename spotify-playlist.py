@@ -77,15 +77,30 @@ def check_IP(ip):
 def override_IP_block(ip,value):
     IPBlacklist[ip] = value
 
+def check_for_rate_limit(pagecontent):
+    if "Metal Storm rate limiting" in pagecontent.decode("utf-8"):
+        return True
+    return False
+
 def read_URL(url,cacheTimeout=URLCacheTimeout):
     timenow = int(time.time())
     cacheEntry = URLCache.get(url,[-1,None])
+    if cacheEntry[1] != None and check_for_rate_limit(cacheEntry[1]):
+        print(f"Cache entry for {url} is rate limited")
+        cacheEntry[1] = None
     if cacheEntry[1] == None or cacheEntry[0] < timenow - cacheTimeout:
 #        print(f"No or expired cache for {url}")
         page = requests.get(url)
-        URLCache[url] = [timenow,page.content]
+        waittime = 10
+        while check_for_rate_limit(page.content) and waittime < 200:
+            print(f"Hit rate limit for {url}")
+            time.sleep(waittime)
+            waittime = waittime * 2
+            page = requests.get(url)
+        if not check_for_rate_limit(page.content):
+            URLCache[url] = [timenow,page.content]
+            init_urlcache_to_file()
         data = html.fromstring(page.content)
-        init_urlcache_to_file()
         return data
     else:
 #        print(f"Retrieved {url} from cache")
