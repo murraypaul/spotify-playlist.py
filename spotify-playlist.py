@@ -52,6 +52,9 @@ GenresBad = []
 
 URLCache = {}
 URLCacheTimeout = 24*60*60
+URLCacheHit = 0
+URLCacheMiss = 0
+URLCacheRateLimit = 0
 
 SpotifyAlbumCache = {}
 SpotifyAlbumCacheTimeout = 60*60
@@ -77,23 +80,40 @@ def check_IP(ip):
 def override_IP_block(ip,value):
     IPBlacklist[ip] = value
 
+def reset_URLCache_stats():
+    global URLCacheHit
+    global URLCacheMiss
+    global URLCacheRateLimit
+    URLCacheHit = 0
+    URLCacheMiss = 0
+    URLCacheRateLimit = 0
+
+def report_URLCache_stats():
+    print(f"URLCache stats: Hit {URLCacheHit}, Miss {URLCacheMiss}, Rate Limit {URLCacheRateLimit}")
+
 def check_for_rate_limit(pagecontent):
     if "Metal Storm rate limiting" in pagecontent.decode("utf-8"):
         return True
     return False
 
 def read_URL(url,cacheTimeout=URLCacheTimeout):
+    global URLCacheHit
+    global URLCacheMiss
+    global URLCacheRateLimit
     timenow = int(time.time())
     cacheEntry = URLCache.get(url,[-1,None])
     if cacheEntry[1] != None and check_for_rate_limit(cacheEntry[1]):
         print(f"Cache entry for {url} is rate limited")
+        URLCacheRateLimit = URLCacheRateLimit + 1
         cacheEntry[1] = None
     if cacheEntry[1] == None or cacheEntry[0] < timenow - cacheTimeout:
 #        print(f"No or expired cache for {url}")
+        URLCacheMiss = URLCacheMiss + 1
         page = requests.get(url)
         waittime = 10
         while check_for_rate_limit(page.content) and waittime < 200:
             print(f"Hit rate limit for {url}")
+            URLCacheRateLimit = URLCacheRateLimit + 1
             time.sleep(waittime)
             waittime = waittime * 2
             page = requests.get(url)
@@ -104,6 +124,7 @@ def read_URL(url,cacheTimeout=URLCacheTimeout):
         return data
     else:
 #        print(f"Retrieved {url} from cache")
+        URLCacheHit = URLCacheHit + 1
         return html.fromstring(cacheEntry[1])
 
 def read_SpotifyAlbum(id):
@@ -3185,8 +3206,13 @@ class web_server(BaseHTTPRequestHandler):
                 for album in results:
                     self.addAlbum(album,release['release_date'],release['genres'])
 
+        self.wfile.write((f"<p>URL Cache stats: Hit {URLCacheHit} Miss {URLCacheMiss} Limited {URLCacheRateLimit}</p>\n").encode("utf-8"))
+
         self.wfile.write(b"</body>\n")
         self.wfile.write(b"</html>")
+
+        report_URLCache_stats()
+        reset_URLCache_stats()
 
     def do_GET_watchlist(self,filter=False,matched_only=True):
         self.addTopOfPage("Watchlist")
