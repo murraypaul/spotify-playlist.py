@@ -1947,18 +1947,21 @@ def init_playlist_cache_playlist(playlist):
 
     PlaylistDetailsCache[playlist['id']] = { 'name': playlist['name'], 'uri': playlist['uri'], 'snapshot_id': playlist['snapshot_id'], 'owner_id': playlist['owner']['id'], 'tracks': [], 'active': True }
 
-    user_id = SpotifyAPI.me()['id']
-    if playlist['owner']['id'] != user_id:
-        tracks = { 'items': SpotifyAPI.playlist(playlist['id'])['tracks'] }
-    else:
-        tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
-    while tracks:
-        for track in tracks['items']:
-            init_playlist_cache_playlist_track(playlist,track)
-        if 'next' in tracks and tracks['next']:
-            tracks = SpotifyAPI.next(tracks)
+    try:
+        user_id = SpotifyAPI.me()['id']
+        if playlist['owner']['id'] != user_id:
+            tracks = { 'items': SpotifyAPI.playlist(playlist['id'])['tracks'] }
         else:
-            tracks = None
+            tracks = SpotifyAPI.user_playlist_tracks(user_id,playlist['id'],limit=50)
+        while tracks:
+            for track in tracks['items']:
+                init_playlist_cache_playlist_track(playlist,track)
+            if 'next' in tracks and tracks['next']:
+                tracks = SpotifyAPI.next(tracks)
+            else:
+                tracks = None
+    except:
+        print(f"Error querying playlist {playlist[id]}")
 
 def init_playlist_cache_purge_tracklist_playlist(playlist_id):
     for track_id in TrackPlaylistCache:
@@ -1994,7 +1997,8 @@ def init_playlist_cache():
     init_playlist_cache_from_file()
 
     user_id = SpotifyAPI.me()['id']
-    playlists = SpotifyAPI.user_playlists(user_id)
+    playlists = SpotifyAPI.current_user_playlists()
+    #playlists = SpotifyAPI.user_playlists(user_id)
     for playlist in playlists['items']:
         init_playlist_cache_playlist(playlist)
     while playlists['next']:
@@ -2005,10 +2009,13 @@ def init_playlist_cache():
     # Might have special non-user playlists
     for playlist_id in PlaylistDetailsCache:
         if PlaylistDetailsCache[playlist_id]['owner_id'] != user_id and not PlaylistDetailsCache[playlist_id]['active']:
-            playlist = SpotifyAPI.playlist(playlist_id)
-            if playlist != None:
-                init_playlist_cache_playlist(playlist)
-                init_playlist_cache_to_file()
+            try:
+                playlist = SpotifyAPI.playlist(playlist_id)
+                if playlist != None:
+                    init_playlist_cache_playlist(playlist)
+                    init_playlist_cache_to_file()
+            except spotipy.exceptions.SpotifyException:
+                print(f"Error fetching playlist {playlist_id}")
 
     init_playlist_cache_process()
 
